@@ -143,6 +143,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           name: "Neon Racer ${{ steps.version.outputs.version }}"
           body: ${{ steps.notes.outputs.notes }}
           files: ${{ steps.apk.outputs.apk_path }}
