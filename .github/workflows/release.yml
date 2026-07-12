@@ -42,14 +42,6 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: ${{ runner.os }}-gradle-
 
-      - name: Download Three.js r160
-        run: |
-          mkdir -p android/app/src/main/assets/www/js
-          curl -fsSL \
-            "https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js" \
-            -o android/app/src/main/assets/www/js/three.min.js
-          echo "Three.js: $(wc -c < android/app/src/main/assets/www/js/three.min.js) bytes"
-
       - name: Grant execute permission to gradlew
         run: chmod +x android/gradlew
 
