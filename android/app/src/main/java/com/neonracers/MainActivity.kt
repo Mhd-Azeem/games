@@ -73,6 +73,14 @@ class MainActivity : AppCompatActivity() {
                     // Block all external navigation
                     return !request?.url.toString().startsWith("file://")
                 }
+
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    android.util.Log.e("NeonRacer", "WebView renderer gone (crashed=${detail?.didCrash()}), reloading")
+                    if (view != null && !isFinishing && !isDestroyed) {
+                        view.loadUrl("file:///android_asset/www/index.html")
+                    }
+                    return true
+                }
             }
 
             addJavascriptInterface(AndroidBridge(), "Android")

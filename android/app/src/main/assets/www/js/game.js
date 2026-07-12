@@ -48,11 +48,25 @@ const Game = (() => {
     const canvas = document.getElementById('game-canvas');
     const quality = Settings.get('graphicsQuality');
 
-    renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: quality === 'high',
-      powerPreference: 'high-performance',
-    });
+    // Check WebGL support before attempting to create the renderer
+    const testCtx = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!testCtx) {
+      document.body.innerHTML = '<div style="color:#fff;font-size:24px;text-align:center;padding:40px;background:#000;height:100vh;display:flex;align-items:center;justify-content:center;">WebGL is not supported on this device.</div>';
+      throw new Error('WebGL not supported');
+    }
+
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: quality === 'high',
+        powerPreference: 'default',
+        failIfMajorPerformanceCaveat: false,
+      });
+    } catch (e) {
+      document.body.innerHTML = '<div style="color:#fff;font-size:20px;text-align:center;padding:40px;background:#000;height:100vh;display:flex;align-items:center;justify-content:center;">Failed to initialize 3D renderer. Please restart the app.</div>';
+      throw e;
+    }
+
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = quality !== 'low';
