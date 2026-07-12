@@ -47,12 +47,7 @@ android {
         jvmTarget = '17'
     }
 
-    // Exclude Three.js and game assets from shrinking/obfuscation
-    packagingOptions {
-        assets {
-            ignoreAssetsPattern "!.svn:!.git:!CVS"
-        }
-    }
+
 }
 
 dependencies {
