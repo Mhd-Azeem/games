@@ -1,0 +1,20 @@
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/app/keystore/
+android/local.properties
+
+# Three.js (downloaded at build time)
+android/app/src/main/assets/www/js/three.min.js
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Gradle
+!android/gradle/wrapper/gradle-wrapper.jar
+!android/gradlew
+!android/gradlew.bat

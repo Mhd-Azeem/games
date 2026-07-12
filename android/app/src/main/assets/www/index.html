@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Neon Racer</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Three.js canvas -->
+<canvas id="game-canvas"></canvas>
+
+<!-- ── Loading Screen ─────────────────────────────────────────────────── -->
+<div id="screen-loading" class="screen">
+  <div class="loading-logo">NEON RACER</div>
+  <div class="loading-sub">TURBO EDITION</div>
+  <div id="loading-bar"><div id="loading-bar-inner"></div></div>
+  <div id="loading-text">Loading…</div>
+</div>
+
+<!-- ── Main Menu ──────────────────────────────────────────────────────── -->
+<div id="screen-main-menu" class="screen hidden">
+  <div class="menu-title">NEON RACER</div>
+  <div class="menu-subtitle">TURBO EDITION</div>
+  <div class="menu-buttons">
+    <button id="btn-free" class="btn primary">FREE DRIVE</button>
+    <button id="btn-race" class="btn primary">RACE MODE</button>
+    <button id="btn-map-select" class="btn">MAP SELECT</button>
+    <button id="btn-settings" class="btn">SETTINGS</button>
+    <button id="btn-exit" class="btn danger">EXIT</button>
+  </div>
+</div>
+
+<!-- ── Map Select ─────────────────────────────────────────────────────── -->
+<div id="screen-map-select" class="screen hidden">
+  <div class="screen-title">SELECT TRACK</div>
+  <div id="map-grid"></div>
+  <button id="btn-map-back" class="btn" style="margin-top:16px">← BACK</button>
+</div>
+
+<!-- ── Settings ───────────────────────────────────────────────────────── -->
+<div id="screen-settings" class="screen hidden">
+  <div class="settings-inner">
+    <div class="screen-title">SETTINGS</div>
+
+    <div class="settings-section">
+      <h3>Graphics</h3>
+      <div class="settings-row">
+        <span class="settings-label">Quality</span>
+        <div class="btn-group">
+          <button class="btn btn-quality" data-value="low">LOW</button>
+          <button class="btn btn-quality" data-value="medium">MED</button>
+          <button class="btn btn-quality active" data-value="high">HIGH</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Audio</h3>
+      <div class="settings-row">
+        <span class="settings-label">Master</span>
+        <input type="range" id="sl-master" min="0" max="100" value="80">
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Engine</span>
+        <input type="range" id="sl-engine" min="0" max="100" value="70">
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Music</span>
+        <input type="range" id="sl-music" min="0" max="100" value="40">
+      </div>
+      <div class="settings-row">
+        <button id="btn-mute" class="btn">🔊 Mute</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Controls</h3>
+      <div class="settings-row">
+        <span class="settings-label">Scheme</span>
+        <div class="btn-group">
+          <button class="btn btn-ctrl active" data-value="buttons">BUTTONS</button>
+          <button class="btn btn-ctrl" data-value="wheel">WHEEL</button>
+          <button class="btn btn-ctrl" data-value="tilt">TILT</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Invert Steer</span>
+        <button id="btn-invert" class="btn">OFF</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Camera</h3>
+      <div class="settings-row">
+        <span class="settings-label">Default View</span>
+        <div class="btn-group">
+          <button class="btn btn-cam active" data-value="chase">CHASE</button>
+          <button class="btn btn-cam" data-value="cockpit">COCKPIT</button>
+          <button class="btn btn-cam" data-value="hood">HOOD</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-row" style="justify-content:space-between;padding:0 4px">
+      <button id="btn-reset-settings" class="btn danger">RESET DEFAULTS</button>
+      <button id="btn-settings-back" class="btn">← BACK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── HUD ─────────────────────────────────────────────────────────────── -->
+<div id="hud" class="hidden">
+  <!-- Top bar -->
+  <div id="hud-top">
+    <div class="hud-pill">
+      <div class="hud-key">TRACK</div>
+      <div class="hud-val" id="hud-track">–</div>
+    </div>
+    <div class="hud-pill">
+      <div class="hud-key">MODE</div>
+      <div class="hud-val" id="hud-mode">–</div>
+    </div>
+  </div>
+
+  <!-- Race info -->
+  <div id="hud-race-info">
+    <div class="hud-info-box" id="hud-lap-label">
+      <div class="hud-info-label">LAP</div>
+      <div class="hud-info-val" id="hud-lap">1/3</div>
+    </div>
+    <div class="hud-info-box" id="hud-timer-label">
+      <div class="hud-info-label">TIME</div>
+      <div class="hud-info-val" id="hud-timer">0:00.000</div>
+    </div>
+    <div class="hud-info-box">
+      <div class="hud-info-label">BEST</div>
+      <div class="hud-info-val" id="hud-best">–</div>
+    </div>
+    <div class="hud-info-box">
+      <div class="hud-info-label">POS</div>
+      <div class="hud-info-val" id="hud-pos">1st</div>
+    </div>
+  </div>
+
+  <!-- Drift indicator -->
+  <div id="hud-drift">⚡ DRIFT ⚡</div>
+
+  <!-- Gear -->
+  <div id="hud-gear-box"><div id="hud-gear">1</div></div>
+
+  <!-- Speedometer -->
+  <div id="speedo">
+    <div class="speedo-bg">
+      <div id="speedo-needle"></div>
+      <div class="speedo-labels">
+        <span id="hud-speed">0</span>
+        <span class="speedo-unit">KM/H</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimap -->
+  <div id="minimap">
+    <canvas id="minimap-canvas" width="100" height="100"></canvas>
+  </div>
+</div>
+
+<!-- ── Touch Controls ─────────────────────────────────────────────────── -->
+<div id="touch-controls" class="hidden"></div>
+
+<!-- ── Countdown overlay ──────────────────────────────────────────────── -->
+<div id="countdown-overlay" class="hidden">
+  <div id="countdown-text">3</div>
+</div>
+
+<!-- ── Pause Menu ─────────────────────────────────────────────────────── -->
+<div id="screen-pause" class="hidden">
+  <h2>PAUSED</h2>
+  <button id="btn-resume" class="btn primary">RESUME</button>
+  <button id="btn-restart" class="btn">RESTART</button>
+  <button id="btn-pause-settings" class="btn">SETTINGS</button>
+  <button id="btn-quit" class="btn danger">QUIT TO MENU</button>
+</div>
+
+<!-- ── Race Results ───────────────────────────────────────────────────── -->
+<div id="screen-results" class="screen hidden">
+  <h2>RACE COMPLETE</h2>
+  <table id="results-table">
+    <thead>
+      <tr>
+        <th>POS</th>
+        <th>DRIVER</th>
+        <th>TIME</th>
+        <th>BEST LAP</th>
+      </tr>
+    </thead>
+    <tbody id="results-tbody"></tbody>
+  </table>
+  <div class="results-btns">
+    <button id="btn-results-restart" class="btn primary">RACE AGAIN</button>
+    <button id="btn-results-menu" class="btn">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- ── Checkpoint flash ───────────────────────────────────────────────── -->
+<div id="checkpoint-flash"></div>
+<div id="lap-flash"></div>
+
+<!-- ── Exit Confirm ───────────────────────────────────────────────────── -->
+<div id="screen-exit" class="hidden">
+  <h2>Exit game?</h2>
+  <div class="exit-btns">
+    <button id="btn-exit-yes" class="btn danger">EXIT</button>
+    <button id="btn-exit-no" class="btn">CANCEL</button>
+  </div>
+</div>
+
+<!-- ── Scripts ────────────────────────────────────────────────────────── -->
+<script src="js/three.min.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/car.js"></script>
+<script src="js/tracks.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+<script>
+  // Boot
+  window.addEventListener('DOMContentLoaded', () => {
+    // Unlock AudioContext on first user gesture
+    document.addEventListener('touchstart', () => Audio.resume(), { once: true });
+    document.addEventListener('click', () => Audio.resume(), { once: true });
+    Game.start();
+  });
+</script>
+</body>
+</html>

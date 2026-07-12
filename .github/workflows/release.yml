@@ -1,0 +1,117 @@
+name: Release APK
+
+# Triggered on version tag push (e.g. v1.0.0)
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build-release:
+    name: Build & Publish Signed Release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create GitHub Release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Download Three.js r160
+        run: |
+          mkdir -p android/app/src/main/assets/www/js
+          curl -fsSL \
+            "https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js" \
+            -o android/app/src/main/assets/www/js/three.min.js
+          echo "Three.js size: $(wc -c < android/app/src/main/assets/www/js/three.min.js) bytes"
+
+      - name: Decode keystore from secret
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p android/app/keystore
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/keystore/release.keystore
+          echo "Keystore written"
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build signed release APK
+        working-directory: android
+        env:
+          KEYSTORE_PATH: keystore/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          echo "Built APK:"
+          ls -lh app/build/outputs/apk/release/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK with version
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             NeonRacer-${{ steps.version.outputs.version }}.apk
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Collect commits since last tag
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log "${PREV_TAG}..HEAD" --oneline --no-merges | head -20)
+          else
+            LOG=$(git log --oneline --no-merges | head -20)
+          fi
+          # Write multiline output
+          {
+            echo "notes<<EOF"
+            echo "## Neon Racer ${{ steps.version.outputs.version }}"
+            echo ""
+            echo "### What's new"
+            echo "${LOG}"
+            echo ""
+            echo "### Install"
+            echo "Download and install \`NeonRacer-${{ steps.version.outputs.version }}.apk\`."
+            echo "You may need to allow installs from unknown sources on your Android device."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Neon Racer ${{ steps.version.outputs.version }}"
+          body: ${{ steps.notes.outputs.notes }}
+          files: NeonRacer-${{ steps.version.outputs.version }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f android/app/keystore/release.keystore
