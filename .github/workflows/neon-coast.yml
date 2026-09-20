@@ -2,6 +2,8 @@ name: Neon Coast - Windows and Android
 
 on:
   push:
+    branches:
+      - '**'
     paths:
       - 'neon-coast/**'
       - '.github/workflows/neon-coast.yml'
