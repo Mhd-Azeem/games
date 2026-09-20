@@ -1,4 +1,4 @@
-; Neon Coast — original cross-platform arcade racer.
+; Neon Coast â€” original cross-platform arcade racer.
 config_version=5
 
 [application]
@@ -20,6 +20,8 @@ window/handheld/orientation=0
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
+textures/vram_compression/import_etc2_astc=true
+textures/vram_compression/import_s3tc_bptc=true
 anti_aliasing/quality/msaa_3d=1
 environment/defaults/default_clear_color=Color(0.12, 0.19, 0.26, 1)
 
@@ -31,4 +33,4 @@ common/physics_ticks_per_second=60
 driver/enable_input=false
 
 [input_devices]
-pointing/emulate_mouse_from_touch=false
+pointing/emulate_mouse_from_touch=true

@@ -45,11 +45,8 @@ func build() -> void:
                         Models.building(block,Vector3(x,0.3,z),Vector3(rng.randf_range(16,24),h,rng.randf_range(16,24)),color,district)
             for edge in [-1,1]:
                 Models.palm(block,Vector3(edge*27,0.3,-25),rng.randf_range(6,9))
-            # Only nearby modules cast shadows / render; collisions remain present.
-            for node in block.get_children():
-                if node is GeometryInstance3D:
-                    node.visibility_range_end = 250
-                    node.visibility_range_end_margin = 30
+            # Batch repeated windows/scenery and cull distant block visuals.
+            Models.batch_static(block,250)
             if (ix+iz)%2==0: traffic_routes.append(Catalog.grid_route(ix*80,iz*80))
     for i in range(-12,13):
         Models.palm(self,Vector3(-264,0,i*21),8)
@@ -66,6 +63,7 @@ func build() -> void:
     # Garage marker is visible in free roam and on the minimap.
     Models.box(self,Vector3(-160,0.07,27),Vector3(13,0.08,9),Color("216e70"))
     make_sign(Vector3(-160,4,30),"GARAGE",Color("65e6cf"))
+    Models.batch_static(self)
 
 func park(block: Node3D) -> void:
     Models.box(block,Vector3(0,0.34,0),Vector3(54,0.15,54),Color("6b936f"))

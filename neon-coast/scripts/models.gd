@@ -89,3 +89,26 @@ static func building(parent: Node3D, pos: Vector3, size: Vector3, color: Color, 
             box(parent,pos+Vector3(0,y,side*(size.z/2+0.02)),Vector3(size.x*0.78,1.45,0.045),Color("466576"),false,0.35)
             box(parent,pos+Vector3(side*(size.x/2+0.02),y,0),Vector3(0.045,1.45,size.z*0.78),Color("466576"),false,0.35)
     box(parent,pos+Vector3(0,1.2,-size.z/2-0.03),Vector3(1.8,2.4,0.07),Color("273944"))
+
+static func batch_static(parent: Node3D, distance: float = 0) -> void:
+    # One draw per material per module, instead of one draw per window/road dash.
+    # Physics bodies remain independent; only the static visual surfaces are merged.
+    var groups: Dictionary={}
+    for node in parent.get_children():
+        if not node is MeshInstance3D: continue
+        var mat: Material=node.material_override
+        var key: int=mat.get_instance_id()
+        if not groups.has(key):
+            var builder:=SurfaceTool.new(); builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+            groups[key]={"builder":builder,"material":mat}
+        groups[key].builder.append_from(node.mesh,0,node.transform)
+        for child in node.get_children():
+            if child is StaticBody3D:
+                var body_transform: Transform3D=node.transform*child.transform
+                node.remove_child(child); parent.add_child(child); child.transform=body_transform
+        parent.remove_child(node); node.queue_free()
+    for group in groups.values():
+        var instance:=MeshInstance3D.new(); instance.mesh=group.builder.commit(); instance.material_override=group.material
+        parent.add_child(instance)
+        if distance>0:
+            instance.visibility_range_end=distance; instance.visibility_range_end_margin=30
