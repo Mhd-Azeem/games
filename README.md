@@ -1,3 +1,13 @@
+# Neon Coast — Windows + Android
+
+The new native Godot open-world racing game is in [neon-coast/](neon-coast/README.md). It includes a modular city, traffic and racer AI, arcade driving, career progression, and an automated Windows EXE / Android APK release workflow.
+
+[Download Neon Coast releases](https://github.com/Mhd-Azeem/games/releases) · [Build workflow](.github/workflows/neon-coast.yml)
+
+The original Android project is preserved below.
+
+---
+
 # Neon Racer — Turbo Edition
 
 A 3D car driving game built with **Three.js**, wrapped in a **Kotlin WebView** Android app, with a fully automated **GitHub Actions** CI/CD pipeline that builds and publishes signed release APKs.

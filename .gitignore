@@ -11,6 +11,18 @@ android/local.properties
 .DS_Store
 Thumbs.db
 
+# Neon Coast / Godot generated state and exports
+neon-coast/.godot/
+neon-coast/build/
+neon-coast/tests/.career-test.json*
+neon-coast/preview.png
+neon-coast/menu-preview.png
+neon-coast/*-preview.png.import
+neon-coast/preview.png.import
+*.keystore
+*.jks
+__pycache__/
+
 # Gradle
 !android/gradle/wrapper/gradle-wrapper.jar
 !android/gradlew

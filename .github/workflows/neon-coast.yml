@@ -1,0 +1,148 @@
+name: Neon Coast - Windows and Android
+
+on:
+  push:
+    paths:
+      - 'neon-coast/**'
+      - '.github/workflows/neon-coast.yml'
+    tags:
+      - 'coast-v*'
+  pull_request:
+    paths:
+      - 'neon-coast/**'
+      - '.github/workflows/neon-coast.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-coast-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: '4.4.1'
+
+jobs:
+  build:
+    name: Test and export both platforms
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download pinned Godot and export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl --fail --location --retry 3 "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -o /tmp/godot.zip
+          curl --fail --location --retry 3 "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -o /tmp/templates.tpz
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 755 "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          unzip -q /tmp/templates.tpz -d /tmp/export-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          cp /tmp/export-templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          godot --version
+      - name: Verify scripts, physics, AI, and career progression
+        run: python neon-coast/tools/verify.py
+      - name: Configure Android SDK and sideload signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/neon-signing"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/neon-signing/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$RUNNER_TEMP/neon-signing/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+      - name: Configure optional persistent release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NEON_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.NEON_ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.NEON_ANDROID_KEYSTORE_ALIAS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEYSTORE_ALIAS" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/neon-signing/release.keystore"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$RUNNER_TEMP/neon-signing/release.keystore" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$KEYSTORE_ALIAS" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROID_EXPORT_MODE=--export-release" >> "$GITHUB_ENV"
+            echo "ANDROID_BUILD_LABEL=release-signed" >> "$GITHUB_ENV"
+          else
+            echo "ANDROID_EXPORT_MODE=--export-debug" >> "$GITHUB_ENV"
+            echo "ANDROID_BUILD_LABEL=sideload-debug-signed" >> "$GITHUB_ENV"
+          fi
+      - name: Export Windows EXE and Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python neon-coast/tools/configure_android.py
+          mkdir -p neon-coast/build
+          godot --headless --path neon-coast --export-release "Windows Desktop" build/NeonCoast.exe 2>&1 | tee /tmp/windows-export.log
+          godot --headless --path neon-coast "$ANDROID_EXPORT_MODE" Android build/NeonCoast.apk 2>&1 | tee /tmp/android-export.log
+          ! grep -E 'SCRIPT ERROR:|Export failed|Failed to export' /tmp/windows-export.log /tmp/android-export.log
+          test -s neon-coast/build/NeonCoast.exe
+          test -s neon-coast/build/NeonCoast.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose neon-coast/build/NeonCoast.apk
+          printf 'Commit: %s\nGodot: %s\nAndroid signing: %s\n' "$GITHUB_SHA" "$GODOT_VERSION" "$ANDROID_BUILD_LABEL" > neon-coast/build/BUILD-INFO.txt
+          cd neon-coast/build
+          sha256sum NeonCoast.exe NeonCoast.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neon-coast-binaries
+          path: neon-coast/build/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish verified binaries to Releases
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/coast-v'))
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: neon-coast-binaries
+          path: release
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="coast-build-${GITHUB_RUN_NUMBER}"
+          EXTRA=(--prerelease)
+          if [[ "$GITHUB_REF" == refs/tags/coast-v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            EXTRA=()
+          fi
+          cat > /tmp/release-notes.md <<'NOTES'
+          ## Neon Coast
+          Original open-world arcade racer: four city districts, ambient traffic, three AI rivals, five career events, three cars, upgrades, save progression, and desktop/touch controls.
+
+          **Windows:** download and run NeonCoast.exe (64-bit; no Godot installation needed).
+          **Android:** download NeonCoast.apk (ARM64, Android 6+ with OpenGL ES 3). This is a sideload build; allow installation from the downloading app.
+
+          See BUILD-INFO.txt for the exact commit and Android signing mode. Without repository signing secrets, the APK uses a temporary debug signing key; uninstall an earlier build before installing a new one. Uninstalling clears career progress. Windows builds are unsigned. Physical Android-device testing is still recommended.
+
+          Source, controls, build instructions, and limitations are in neon-coast/README.md. SHA256SUMS.txt contains binary checksums.
+          NOTES
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "Neon Coast / $TAG" --notes-file /tmp/release-notes.md "${EXTRA[@]}"
+          fi
