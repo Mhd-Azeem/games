@@ -1,3 +1,5 @@
+Editing update 0.3: multi-point tap selection, group dragging, bulk removal with Undo, batch point physics, floating selection actions and Focus canvas. Remove cards from Recents with × without deleting saved projects. Existing project format remains compatible.
+
 AZ Anime Motion Wallpaper Studio
 
 Offline Kotlin editor with a charcoal interface, gallery import, six original starter illustrations, independently configurable movement points, fixed anchors, brush/eraser, lasso, editable polygons, shapes, local color selection, region transforms, spring physics, OpenGL mesh deformation, sensor/manual preview, project backup and native live wallpaper integration.

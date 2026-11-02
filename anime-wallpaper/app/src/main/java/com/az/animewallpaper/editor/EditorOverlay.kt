@@ -11,6 +11,7 @@ import kotlin.math.*
 
 enum class Tool {
     SELECT,
+    MULTI_SELECT,
     POINT,
     BRUSH,
     ERASER,
@@ -26,7 +27,44 @@ class EditorOverlay(context: Context) : View(context) {
     lateinit var project: Project
     var imageW = 720f
     var imageH = 1280f
-    var selectedPoint = ""
+    val pointSelection = PointSelection()
+    var selectedPoint: String
+        get() = pointSelection.primary
+        set(value) {
+            pointSelection.single(value)
+            selection()
+            invalidate()
+        }
+
+    val selectedPoints: Set<String>
+        get() = pointSelection.selected
+
+    fun clearPoints() {
+        pointSelection.clear()
+        selection()
+        invalidate()
+    }
+
+    fun selectAllPoints() {
+        pointSelection.all(project.points)
+        selection()
+        invalidate()
+    }
+
+    fun restorePoints(ids: Collection<String>) {
+        pointSelection.replace(ids)
+        pointSelection.prune(project.points)
+        selection()
+        invalidate()
+    }
+
+    fun removeSelectedPoints(): Int {
+        val n = pointSelection.remove(project)
+        selection()
+        dirty()
+        return n
+    }
+
     var selectedRegion = ""
     var tool = Tool.SELECT
     var brushRadius = .055f
@@ -51,6 +89,23 @@ class EditorOverlay(context: Context) : View(context) {
     private val colors = IntArray(MASK_SIZE * MASK_SIZE)
     private var maskDirty = true
     private var vertexIndex = -1
+    private var dragOrigins = emptyMap<String, Pair<Float, Float>>()
+    private var dragged = false
+    private var toggleOnUp = ""
+    private var downScreen = 0f to 0f
+
+    private fun hitPoint(x: Float, y: Float): String =
+        project.points
+            .minByOrNull {
+                val pos = frame().screen(it.x, it.y)
+                hypot(pos.first - x, pos.second - y)
+            }
+            ?.takeIf {
+                val pos = frame().screen(it.x, it.y)
+                hypot(pos.first - x, pos.second - y) < 28 * resources.displayMetrics.density
+            }
+            ?.id ?: ""
+
     private val pinch =
         ScaleGestureDetector(
             context,
@@ -126,7 +181,7 @@ class EditorOverlay(context: Context) : View(context) {
             val edge = f.screen(point.x + point.physics.radius, point.y)
             paint.color =
                 if (point.fixed) 0xffffbe74.toInt()
-                else if (point.id == selectedPoint) Color.WHITE else 0xff91dce2.toInt()
+                else if (point.id in selectedPoints) Color.WHITE else 0xff91dce2.toInt()
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 2f
             if (point.id == selectedPoint) {
@@ -137,7 +192,14 @@ class EditorOverlay(context: Context) : View(context) {
                     paint,
                 )
             }
+            if (point.id in selectedPoints) {
+                paint.color = Color.WHITE
+                canvas.drawCircle(v.first, v.second, 16f * resources.displayMetrics.density, paint)
+            }
             paint.style = Paint.Style.FILL
+            paint.color =
+                if (point.fixed) 0xffffbe74.toInt()
+                else if (point.id in selectedPoints) Color.WHITE else 0xff91dce2.toInt()
             canvas.drawCircle(v.first, v.second, 12f * resources.displayMetrics.density, paint)
             paint.color = Color.BLACK
             paint.textSize = 18f * resources.displayMetrics.density
@@ -181,6 +243,10 @@ class EditorOverlay(context: Context) : View(context) {
                 parent.requestDisallowInterceptTouchEvent(true)
                 multi = false
                 start = pos
+                downScreen = event.x to event.y
+                dragged = false
+                toggleOnUp = ""
+                dragOrigins = emptyMap()
                 previous = pos
                 previousScreen = event.x to event.y
                 when (tool) {
@@ -200,29 +266,30 @@ class EditorOverlay(context: Context) : View(context) {
                             changed()
                         }
                     }
-                    Tool.SELECT -> {
+                    Tool.SELECT,
+                    Tool.MULTI_SELECT -> {
                         vertexIndex =
-                            region()
-                                ?.takeUnless { it.locked }
-                                ?.vertices
-                                ?.indexOfFirst { v ->
-                                    val a = frame().screen(v.first, v.second)
-                                    hypot(a.first - event.x, a.second - event.y) <
-                                        24 * resources.displayMetrics.density
-                                } ?: -1
-                        selectedPoint =
-                            project.points
-                                .minByOrNull {
-                                    val a = frame().screen(it.x, it.y)
-                                    hypot(a.first - event.x, a.second - event.y)
-                                }
-                                ?.takeIf {
-                                    val a = frame().screen(it.x, it.y)
-                                    hypot(a.first - event.x, a.second - event.y) <
-                                        40 * resources.displayMetrics.density
-                                }
-                                ?.id ?: ""
-                        checkpoint()
+                            if (tool == Tool.SELECT)
+                                region()
+                                    ?.takeUnless { it.locked }
+                                    ?.vertices
+                                    ?.indexOfFirst {
+                                        val v = frame().screen(it.first, it.second)
+                                        hypot(v.first - event.x, v.second - event.y) <
+                                            24 * resources.displayMetrics.density
+                                    } ?: -1
+                            else -1
+                        if (vertexIndex >= 0) {
+                            selectedPoint = ""
+                            checkpoint()
+                        } else {
+                            val hit = hitPoint(event.x, event.y)
+                            if (tool == Tool.SELECT) pointSelection.single(hit)
+                            else if (hit.isEmpty()) pointSelection.clear()
+                            else if (hit in selectedPoints) toggleOnUp = hit
+                            else pointSelection.toggle(hit)
+                            dragOrigins = pointSelection.origins(project.points)
+                        }
                         selection()
                     }
                     Tool.BRUSH,
@@ -270,7 +337,8 @@ class EditorOverlay(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 if (multi) return true
                 when (tool) {
-                    Tool.SELECT -> {
+                    Tool.SELECT,
+                    Tool.MULTI_SELECT -> {
                         if (vertexIndex >= 0) {
                             region()?.let { r ->
                                 r.vertices[vertexIndex] =
@@ -280,14 +348,25 @@ class EditorOverlay(context: Context) : View(context) {
                                 dirty()
                                 changed()
                             }
-                        } else
-                            project.points
-                                .find { it.id == selectedPoint }
-                                ?.let {
-                                    it.x = pos.first.coerceIn(0f, 1f)
-                                    it.y = pos.second.coerceIn(0f, 1f)
-                                    changed()
-                                }
+                        } else if (dragOrigins.isNotEmpty()) {
+                            if (
+                                !dragged &&
+                                    hypot(event.x - downScreen.first, event.y - downScreen.second) >
+                                        8 * resources.displayMetrics.density
+                            ) {
+                                checkpoint()
+                                dragged = true
+                            }
+                            if (dragged) {
+                                pointSelection.move(
+                                    project.points,
+                                    dragOrigins,
+                                    pos.first - start.first,
+                                    pos.second - start.second,
+                                )
+                                changed()
+                            }
+                        }
                     }
                     Tool.BRUSH,
                     Tool.ERASER -> paintStroke(previous, pos)
@@ -310,6 +389,13 @@ class EditorOverlay(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 if (!multi) {
                     when (tool) {
+                        Tool.MULTI_SELECT -> {
+                            if (!dragged && toggleOnUp.isNotEmpty()) {
+                                pointSelection.toggle(toggleOnUp)
+                                selection()
+                                invalidate()
+                            }
+                        }
                         Tool.LASSO -> {
                             region()
                                 ?.takeUnless { it.locked }

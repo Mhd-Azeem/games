@@ -7,7 +7,12 @@ import android.widget.*
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.az.animewallpaper.editor.EditorOverlay
+import com.az.animewallpaper.models.MotionPoint
+import com.az.animewallpaper.models.Physics
+import com.az.animewallpaper.rendering.ImageFrame
 import com.az.animewallpaper.storage.ProjectStore
+import com.az.animewallpaper.storage.RecentProjects
 import java.io.*
 import org.junit.*
 import org.junit.Assert.*
@@ -240,6 +245,130 @@ class DeviceTests {
         }
         assertTrue("Applied wallpaper remained black after settling", visible)
         store.delete(project)
+    }
+
+    private fun overlay(view: View): EditorOverlay? {
+        if (view is EditorOverlay) return view
+        if (view is ViewGroup)
+            for (i in 0 until view.childCount) overlay(view.getChildAt(i))?.let {
+                return it
+            }
+        return null
+    }
+
+    private fun description(view: View, text: String): View? {
+        if (view.contentDescription?.toString() == text) return view
+        if (view is ViewGroup)
+            for (i in 0 until view.childCount) description(view.getChildAt(i), text)?.let {
+                return it
+            }
+        return null
+    }
+
+    private fun hasText(view: View, text: String): Boolean {
+        if (view is TextView && view.text.toString() == text) return true
+        if (view is ViewGroup)
+            for (i in 0 until view.childCount) if (hasText(view.getChildAt(i), text)) return true
+        return false
+    }
+
+    @Test
+    fun multiSelectionDragDeleteUndoAndFocus() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                find(a.window.decorView, "Browse starter wallpapers")!!.performClick()
+                find(a.window.decorView, "Create: Anime • moonlit silhouette")!!.performClick()
+            }
+            var ready = false
+            repeat(40) {
+                if (!ready) {
+                    Thread.sleep(250)
+                    scenario.onActivity { a -> ready = overlay(a.window.decorView)?.pixels != null }
+                }
+            }
+            assertTrue(ready)
+            var ids = emptyList<String>()
+            scenario.onActivity { a ->
+                val o = overlay(a.window.decorView)!!
+                val first = MotionPoint(x = .28f, y = .42f, physics = Physics(intensity = .25f))
+                val second = MotionPoint(x = .68f, y = .42f, physics = Physics(intensity = 1.25f))
+                val untouched = MotionPoint(x = .5f, y = .72f)
+                ids = listOf(first.id, second.id, untouched.id)
+                o.project.points.clear()
+                o.project.points.addAll(listOf(first, second, untouched))
+                o.changed()
+                find(a.window.decorView, "Multi-select")!!.performClick()
+                val frame =
+                    ImageFrame(o.width.toFloat(), o.height.toFloat(), o.imageW, o.imageH, o.project)
+                fun event(action: Int, x: Float, y: Float) {
+                    val v = frame.screen(x, y)
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val e = MotionEvent.obtain(now, now, action, v.first, v.second, 0)
+                    o.dispatchTouchEvent(e)
+                    e.recycle()
+                }
+                fun tap(x: Float, y: Float) {
+                    event(MotionEvent.ACTION_DOWN, x, y)
+                    event(MotionEvent.ACTION_UP, x, y)
+                }
+                tap(.28f, .42f)
+                tap(.68f, .42f)
+                assertEquals(setOf(first.id, second.id), o.selectedPoints)
+                event(MotionEvent.ACTION_DOWN, .28f, .42f)
+                event(MotionEvent.ACTION_MOVE, .38f, .52f)
+                event(MotionEvent.ACTION_UP, .38f, .52f)
+                assertEquals(.38f, first.x, .002f)
+                assertEquals(.78f, second.x, .002f)
+                assertEquals(.72f, untouched.y, 0f)
+                assertEquals(.25f, first.physics.intensity, 0f)
+                assertEquals(1.25f, second.physics.intensity, 0f)
+                tap(second.x, second.y)
+                assertEquals(setOf(first.id), o.selectedPoints)
+                tap(second.x, second.y)
+            }
+            Thread.sleep(400)
+            val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            File(context.getExternalFilesDir(null), "multi-selection.png").outputStream().use {
+                shot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            shot.recycle()
+            scenario.recreate()
+            scenario.onActivity { a ->
+                val o = overlay(a.window.decorView)!!
+                assertEquals(ids.take(2).toSet(), o.selectedPoints)
+                find(a.window.decorView, "Focus canvas")!!.performClick()
+                assertTrue(find(a.window.decorView, "Show tools")!!.isShown)
+                assertFalse(find(a.window.decorView, "Multi-select")!!.isShown)
+                find(a.window.decorView, "Show tools")!!.performClick()
+                find(a.window.decorView, "Remove points")!!.performClick()
+                assertEquals(listOf(ids[2]), o.project.points.map { it.id })
+                find(a.window.decorView, "Undo")!!.performClick()
+                assertEquals(ids, overlay(a.window.decorView)!!.project.points.map { it.id })
+            }
+        }
+    }
+
+    @Test
+    fun removingFromRecentsKeepsSavedProject() {
+        val store = ProjectStore(context)
+        val recent = RecentProjects(context)
+        val p = store.starter(2)
+        p.name = "Recent removal test"
+        store.save(p)
+        recent.recordOpen(p.id)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                description(a.window.decorView, "Remove ${p.name} from Recents")!!.performClick()
+                assertFalse(hasText(a.window.decorView, p.name))
+                assertFalse(RecentProjects(context).visible(listOf(p)).isNotEmpty())
+                assertTrue(File(store.load(p.id).image).exists())
+                find(a.window.decorView, "My Wallpapers")!!.performClick()
+                assertTrue(hasText(a.window.decorView, p.name))
+            }
+        }
+        recent.recordOpen(p.id)
+        assertEquals(p.id, recent.visible(listOf(p)).single().id)
+        store.delete(p)
     }
 
     @Test

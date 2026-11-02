@@ -46,6 +46,15 @@ class MainActivity : Activity() {
     private var clipboard: Physics? = null
     private var exportProject: Project? = null
     private var activeScreen = "Home"
+    private val recents by lazy { RecentProjects(this) }
+    private var editorPointIds: Set<String> = emptySet()
+    private var editorRegionId = ""
+    private var editorTool = Tool.SELECT
+    private var editorFocused = false
+    private val editorChrome = mutableListOf<View>()
+    private var pointActionBar: View? = null
+    private var pointCount: TextView? = null
+    private var showTools: View? = null
     private val prefs by lazy { getSharedPreferences("studio", MODE_PRIVATE) }
     private val ticker =
         object : Runnable {
@@ -184,6 +193,12 @@ class MainActivity : Activity() {
         if (state?.getBoolean("editorActive") == true && restore.isFile) {
             try {
                 project = Codec.decode(restore.readText())
+                editorPointIds = state.getStringArrayList("editorSelection")?.toSet() ?: emptySet()
+                editorTool =
+                    runCatching { Tool.valueOf(state.getString("editorTool") ?: "SELECT") }
+                        .getOrDefault(Tool.SELECT)
+                editorRegionId = state.getString("editorRegion", "")
+                editorFocused = state.getBoolean("editorFocused")
                 editor()
                 return
             } catch (_: Exception) {}
@@ -193,6 +208,13 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(out: Bundle) {
         out.putBoolean("editorActive", project != null)
+        out.putStringArrayList(
+            "editorSelection",
+            ArrayList(overlay?.selectedPoints ?: editorPointIds),
+        )
+        out.putString("editorTool", (overlay?.tool ?: editorTool).name)
+        out.putString("editorRegion", overlay?.selectedRegion ?: editorRegionId)
+        out.putBoolean("editorFocused", editorFocused)
         project?.let { File(cacheDir, "editor-session.json").writeText(Codec.encode(it)) }
         super.onSaveInstanceState(out)
     }
@@ -233,6 +255,16 @@ class MainActivity : Activity() {
     }
 
     private fun stopCanvas() {
+        overlay?.let {
+            editorPointIds = it.selectedPoints.toSet()
+            editorRegionId = it.selectedRegion
+            editorTool = it.tool
+        }
+        pointActionBar = null
+        pointCount = null
+        showTools = null
+        editorChrome.clear()
+
         handler.removeCallbacks(ticker)
         handler.removeCallbacks(refresh)
         refreshing = false
@@ -267,7 +299,14 @@ class MainActivity : Activity() {
             )
         }
         content.addView(text(if (tab == "Home") "Recent projects" else "Saved wallpapers", 19f))
-        val list = store.list()
+        val saved = store.list()
+        val list = if (tab == "Home") recents.visible(saved).take(12) else saved
+        if (tab == "Home" && recents.hasHidden())
+            addButton(content, "Restore removed recent items") {
+                recents.restore()
+                home()
+            }
+
         if (list.isEmpty())
             content.addView(text("Your saved projects will appear here.", 14f, muted))
         list.forEach { p ->
@@ -291,6 +330,18 @@ class MainActivity : Activity() {
                 ),
                 LinearLayout.LayoutParams(0, -2, 1f),
             )
+            if (tab == "Home")
+                line.addView(
+                    button("×") {
+                            recents.hide(p.id)
+                            home()
+                            message("Removed from Recents. Project kept in My Wallpapers.")
+                        }
+                        .apply {
+                            contentDescription = "Remove ${p.name} from Recents"
+                            tooltipText = "Remove from Recents"
+                        }
+                )
             card.addView(line)
             runIO {
                 val b = store.thumbnail(p)
@@ -396,6 +447,13 @@ class MainActivity : Activity() {
     }
 
     private fun open(p: Project) {
+        stopCanvas()
+        recents.recordOpen(p.id)
+        editorPointIds = emptySet()
+        editorRegionId = ""
+        editorTool = Tool.SELECT
+        editorFocused = false
+
         p.fps = prefs.getInt("fps", p.fps)
         p.quality = prefs.getInt("quality", p.quality)
         project = p
@@ -483,9 +541,11 @@ class MainActivity : Activity() {
                     },
             ),
         )
+        editorChrome.add(parent.getChildAt(parent.childCount - 1))
         canvas(parent, true)
         val status = text("Select or drag points • pinch to zoom • Pan to reposition", 12f, muted)
         parent.addView(status)
+        editorChrome.add(status)
         fun setTool(t: Tool) {
             if (
                 t in
@@ -501,13 +561,24 @@ class MainActivity : Activity() {
             )
                 addRegion()
             overlay?.tool = t
+            editorTool = t
             status.text =
-                "${t.name.lowercase().replaceFirstChar{it.uppercase()}} • ${if(t==Tool.POLYGON)"Tap vertices, then Close polygon" else "Draw directly on the image"}"
+                when (t) {
+                    Tool.SELECT -> "Select • tap a point, then drag it"
+                    Tool.MULTI_SELECT -> "Multi-select • tap to toggle • drag to move together"
+                    Tool.POINT -> "Add point • tap image • pinch selected point to resize"
+                    Tool.PAN -> "Pan • drag image • pinch to zoom"
+                    Tool.POLYGON -> "Polygon • tap vertices, then Close polygon"
+                    else ->
+                        "${t.name.lowercase().replaceFirstChar{it.uppercase()}} • draw on the image"
+                }
+            updatePointActions()
         }
         toolbar(
             parent,
             listOf(
                 "Select" to { setTool(Tool.SELECT) },
+                "Multi-select" to { setTool(Tool.MULTI_SELECT) },
                 "Add point" to { setTool(Tool.POINT) },
                 "Brush" to { setTool(Tool.BRUSH) },
                 "Eraser" to { setTool(Tool.ERASER) },
@@ -520,6 +591,7 @@ class MainActivity : Activity() {
                 "Pan" to { setTool(Tool.PAN) },
             ),
         )
+        editorChrome.add(parent.getChildAt(parent.childCount - 1))
         toolbar(
             parent,
             listOf(
@@ -533,7 +605,8 @@ class MainActivity : Activity() {
                     },
                 "Brush options" to { brushSheet() },
                 "Crop / frame" to { frameSheet() },
-                "Hide controls" to
+                "Focus canvas" to { setEditorFocus(!editorFocused) },
+                "Hide markers" to
                     {
                         overlay?.let {
                             it.hidden = !it.hidden
@@ -543,6 +616,34 @@ class MainActivity : Activity() {
                 "Project" to { projectMenu(p) },
             ),
         )
+        editorChrome.add(parent.getChildAt(parent.childCount - 1))
+        setTool(editorTool)
+        setEditorFocus(editorFocused)
+    }
+
+    private fun updatePointActions() {
+        val count = overlay?.selectedPoints?.size ?: 0
+        pointCount?.text = "$count selected"
+        pointActionBar?.visibility = if (count > 0) View.VISIBLE else View.GONE
+        overlay?.invalidate()
+    }
+
+    private fun removePoints(ids: Set<String> = overlay?.selectedPoints?.toSet() ?: emptySet()) {
+        val p = project ?: return
+        if (ids.none { key -> p.points.any { it.id == key } }) return
+        snapshot()
+        val selection = PointSelection().apply { replace(ids) }
+        val count = selection.remove(p)
+        overlay?.pointSelection?.prune(p.points)
+        updatePointActions()
+        changed()
+        message("Removed $count point${if(count==1)"" else "s"}. Undo restores them.")
+    }
+
+    private fun setEditorFocus(focused: Boolean) {
+        editorFocused = focused
+        editorChrome.forEach { it.visibility = if (focused) View.GONE else View.VISIBLE }
+        showTools?.visibility = if (focused) View.VISIBLE else View.GONE
     }
 
     private fun canvas(parent: LinearLayout, editing: Boolean) {
@@ -564,8 +665,44 @@ class MainActivity : Activity() {
             o.project = p
             o.checkpoint = { snapshot() }
             o.changed = { changed() }
-            o.selection = {}
+            o.selection = { updatePointActions() }
+            o.tool = editorTool
+            o.selectedRegion = editorRegionId.takeIf { id -> p.regions.any { it.id == id } } ?: ""
+            o.restorePoints(editorPointIds)
             container.addView(o, FrameLayout.LayoutParams(-1, -1))
+            val actions =
+                row().apply {
+                    background = round(surface, 18)
+                    elevation = dp(6).toFloat()
+                    setPadding(dp(6), dp(3), dp(6), dp(3))
+                }
+            pointCount = text("", 13f)
+            actions.addView(pointCount)
+            actions.addView(button("Remove points") { removePoints() })
+            actions.addView(
+                button("All") { o.selectAllPoints() }
+                    .apply { contentDescription = "Select all points" }
+            )
+            actions.addView(
+                button("Clear") { o.clearPoints() }
+                    .apply { contentDescription = "Clear point selection" }
+            )
+            pointActionBar = actions
+            container.addView(
+                actions,
+                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+                    .apply { bottomMargin = dp(8) },
+            )
+            val restore = button("Show tools") { setEditorFocus(false) }
+            showTools = restore
+            container.addView(
+                restore,
+                FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(8)
+                    marginEnd = dp(8)
+                },
+            )
+            updatePointActions()
             runIO {
                 val b = store.decode(p.image, 256)
                 val small = Bitmap.createScaledBitmap(b, 128, 128, true)
@@ -739,6 +876,12 @@ class MainActivity : Activity() {
 
     private fun physicsSheet() {
         val p = project ?: return
+        val selected = p.points.filter { it.id in (overlay?.selectedPoints ?: emptySet()) }
+        if (selected.size > 1) {
+            batchPhysics(selected)
+            return
+        }
+
         val point = selectedPoint()
         val region = selectedRegion()
         val config = point?.physics ?: region?.physics ?: p.global
@@ -837,6 +980,72 @@ class MainActivity : Activity() {
                 }
                 changed()
                 physicsSheet()
+            }
+        }
+    }
+
+    private fun batchPhysics(points: List<MotionPoint>) {
+        val p = project ?: return
+        bottom("${points.size} selected points") { box ->
+            box.addView(
+                text("Only the control you change is applied to every selected point.", 13f, muted)
+            )
+            slider(
+                box,
+                "Intensity %",
+                points.map { it.physics.intensity }.average().toFloat() * 100,
+                0f,
+                200f,
+            ) { v ->
+                points.forEach { it.physics.intensity = v / 100 }
+            }
+            slider(
+                box,
+                "Radius / 1000 px",
+                points.map { it.physics.radius }.average().toFloat() * 1000,
+                1f,
+                500f,
+            ) { v ->
+                points.forEach { it.physics.radius = v / 1000 }
+            }
+            slider(
+                box,
+                "Stiffness",
+                points.map { it.physics.stiffness }.average().toFloat(),
+                0f,
+                100f,
+            ) { v ->
+                points.forEach { it.physics.stiffness = v }
+            }
+            slider(
+                box,
+                "Damping",
+                points.map { it.physics.damping }.average().toFloat(),
+                0f,
+                100f,
+            ) { v ->
+                points.forEach { it.physics.damping = v }
+            }
+            addButton(box, "Enable selected") {
+                snapshot()
+                points.forEach { it.enabled = true }
+                changed()
+            }
+            addButton(box, "Disable selected") {
+                snapshot()
+                points.forEach { it.enabled = false }
+                changed()
+            }
+            addButton(box, "Assign selected to region") {
+                choices("Assign region", listOf("No region") + p.regions.map { it.name }) { i ->
+                    snapshot()
+                    points.forEach { it.region = if (i == 0) "" else p.regions[i - 1].id }
+                    changed()
+                }
+            }
+            addButton(box, "Remove selected points") {
+                removePoints(points.map { it.id }.toSet())
+                sheet?.dismiss()
             }
         }
     }
@@ -941,6 +1150,21 @@ class MainActivity : Activity() {
                 )
             }
             box.addView(text("Movement points", 18f))
+            toolbar(
+                box,
+                listOf(
+                    "Select all points" to
+                        {
+                            overlay?.selectAllPoints()
+                            sheet?.dismiss()
+                        },
+                    "Remove selected" to
+                        {
+                            removePoints()
+                            layers()
+                        },
+                ),
+            )
             p.points.toList().forEach { point ->
                 toolbar(
                     box,
@@ -963,9 +1187,7 @@ class MainActivity : Activity() {
                             },
                         "Delete" to
                             {
-                                snapshot()
-                                p.points.remove(point)
-                                changed()
+                                removePoints(setOf(point.id))
                                 layers()
                             },
                     ),

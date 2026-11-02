@@ -40,3 +40,9 @@ No signing key is generated or committed. Configure repository Actions secrets w
 - `AZ_SIGNING_KEY_PASSWORD`
 
 Local signed builds use `AZ_SIGNING_STORE` (absolute keystore path) and the password/alias variables above. Debug builds use `com.az.animewallpaper.dev` so they install alongside the old app without replacing it. Export/import projects when migrating between test and production builds. The workflow always produces a debug test artifact; it builds and verifies a production APK only when all four secrets exist. Dispatch `publish=true` with a unique tag to publish after unit/lint and emulator checks pass. Never treat a debug APK as the final production release. Keep a secure backup of the keystore; updates require the same signing identity.
+
+## Editing update 0.3
+
+Use **Multi-select** and tap point handles to toggle them. Drag any selected handle to move the whole selection; group spacing is preserved at image edges. The floating point bar offers Remove points, All and Clear. Removal supports Undo. Physics on multiple selected points opens batch controls; only the changed field is shared. **Focus canvas** hides editing toolbars, with Show tools to restore them. Selection survives preview navigation and activity recreation.
+
+The **×** on a Home recent card hides that item from Recents. It keeps the saved project and currently applied wallpaper. Open it in My Wallpapers to return it to Recents, or use Restore removed recent items.
