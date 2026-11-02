@@ -25,7 +25,8 @@ class ImageFrame(
     private val rh = if (rotated) imageW else imageH
     private val scale =
         (if (forceFit || p.fit) min(viewW / rw, viewH / rh) else max(viewW / rw, viewH / rh)) *
-            if (forceFit) 1f else p.zoom
+            (if (forceFit) 1f else p.zoom) *
+            (if (p.spatial.enabled && !forceFit) 1.07f else 1f)
     private val offsetX = if (forceFit) 0f else p.offsetX
     private val offsetY = if (forceFit) 0f else p.offsetY
     private val angle = p.rotation * PI.toFloat() / 180
@@ -368,8 +369,8 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                             dy *= a
                         }
                         spatialMotion.transform(
-                            .5f + (u + dx - .5f) * 1.07f,
-                            .5f + (v + dy - .5f) * 1.07f,
+                            .5f + (u + dx - .5f),
+                            .5f + (v + dy - .5f),
                             depth,
                             imageH / imageW,
                             p.spatial.strength,
