@@ -188,6 +188,7 @@ class DeviceTests {
             }
             return false
         }
+        Thread.sleep(2000)
         var clicked = false
         repeat(60) {
             if (!clicked) {
@@ -213,6 +214,29 @@ class DeviceTests {
             }
         }
         assertTrue("Android did not activate the live wallpaper service", applied)
+        instrumentation.uiAutomation.executeShellCommand("input keyevent 3").close()
+        Thread.sleep(2000)
+        var visible = false
+        repeat(3) {
+            if (!visible) {
+                val home = instrumentation.uiAutomation.takeScreenshot()
+                if (home != null) {
+                    val positions = listOf(.3f to .45f, .5f to .45f, .7f to .45f)
+                    visible =
+                        positions.all { (x, y) ->
+                            val color =
+                                home.getPixel((home.width * x).toInt(), (home.height * y).toInt())
+                            Color.red(color) + Color.green(color) + Color.blue(color) > 30
+                        }
+                    File(context.getExternalFilesDir(null), "applied-home.png").outputStream().use {
+                        home.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    home.recycle()
+                }
+                if (!visible) Thread.sleep(1000)
+            }
+        }
+        assertTrue("Applied wallpaper remained black after settling", visible)
         store.delete(project)
     }
 
