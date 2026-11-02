@@ -1,67 +1,180 @@
 package com.az.animewallpaper
-import android.graphics.*
-import android.hardware.*
-import android.os.Handler
-import android.os.Looper
+
+import android.opengl.*
+import android.os.*
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
-import kotlin.math.*
-class MotionWallpaperService: WallpaperService() {
- override fun onCreateEngine(): Engine = MotionEngine()
- inner class MotionEngine: Engine(), SensorEventListener {
-  private val handler=Handler(Looper.getMainLooper())
-  private val sensorManager=getSystemService(SENSOR_SERVICE) as SensorManager
-  private val sensor=sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-  private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-  private val prefs=getSharedPreferences("motion",MODE_PRIVATE)
-  private val gravity=FloatArray(3)
-  private var visible=false
-  private var hair=0f; private var hairVelocity=0f
-  private var clothing=0f; private var clothingVelocity=0f
-  private var hairImage:Bitmap?=null; private var clothingImage:Bitmap?=null; private var background:Bitmap?=null
-  private val frame=object:Runnable { override fun run() { if(!visible)return; update(); draw(); handler.postDelayed(this,33L) } }
-  init {
-   fun load(name:String):Bitmap? = try { assets.open(name).use { BitmapFactory.decodeStream(it) } } catch (_:Exception) { null }
-   background=load("background.png"); hairImage=load("hair.png"); clothingImage=load("chest.png")
-  }
-  override fun onVisibilityChanged(isVisible:Boolean) { visible=isVisible; handler.removeCallbacks(frame); if(visible){sensor?.let{sensorManager.registerListener(this,it,SensorManager.SENSOR_DELAY_GAME)};handler.post(frame)} else sensorManager.unregisterListener(this) }
-  override fun onDestroy() { visible=false;handler.removeCallbacks(frame);sensorManager.unregisterListener(this);background?.recycle();hairImage?.recycle();clothingImage?.recycle();super.onDestroy() }
-  override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int){}
-  override fun onSensorChanged(event:SensorEvent) {
-   if(event.sensor.type!=Sensor.TYPE_ACCELEROMETER)return
-   for(i in 0..2)gravity[i]=gravity[i]*0.85f+event.values[i]*0.15f
-   val dx=(event.values[0]-gravity[0]).coerceIn(-12f,12f)
-   val dy=(event.values[1]-gravity[1]).coerceIn(-12f,12f)
-   val sensitivity=prefs.getInt("sensitivity",55)/55f
-   val hairScale=prefs.getInt("hair",65)/65f
-   val clothingScale=prefs.getInt("clothing",35)/35f
-   hairVelocity+=(dx*0.09f+dy*0.015f)*sensitivity*hairScale
-   clothingVelocity+=(dy*0.035f+dx*0.01f)*sensitivity*clothingScale
-  }
-  private fun update() {
-   hairVelocity+=(-hair*0.11f-hairVelocity*0.20f)
-   clothingVelocity+=(-clothing*0.18f-clothingVelocity*0.30f)
-   hair=(hair+hairVelocity).coerceIn(-16f,16f)
-   clothing=(clothing+clothingVelocity).coerceIn(-6f,6f)
-  }
-  private fun draw() {
-   val holder=surfaceHolder
-   var canvas:Canvas?=null
-   try {
-    canvas=holder.lockCanvas()?:return
-    val c=canvas
-    c.drawColor(Color.rgb(15,9,32))
-    val w=c.width.toFloat(); val h=c.height.toFloat()
-    val dst=RectF(0f,0f,w,h)
-    background?.let { c.drawBitmap(it,null,dst,paint) } ?: run {
-     paint.color=Color.rgb(35,20,60);c.drawRect(dst,paint)
-     paint.color=Color.WHITE;paint.textSize=35f;c.drawText("Add background.png",25f,h/2,paint)
-     paint.color=Color.WHITE
+import com.az.animewallpaper.rendering.MotionRenderer
+import com.az.animewallpaper.sensors.MotionSensors
+import com.az.animewallpaper.storage.ProjectStore
+
+class MotionWallpaperService : WallpaperService() {
+    override fun onCreateEngine(): Engine = MotionEngine()
+
+    inner class MotionEngine : Engine() {
+        private val thread = HandlerThread("AZ Wallpaper GPU").apply { start() }
+        private val handler = Handler(thread.looper)
+        private val renderer = MotionRenderer(this@MotionWallpaperService)
+        private val sensors =
+            MotionSensors(this@MotionWallpaperService) { x, y ->
+                renderer.inputX = x
+                renderer.inputY = y
+            }
+        private var display = EGL14.EGL_NO_DISPLAY
+        private var eglContext = EGL14.EGL_NO_CONTEXT
+        private var surface = EGL14.EGL_NO_SURFACE
+        @Volatile private var shown = false
+        private var ready = false
+        private var fps = 30
+        private val frame =
+            object : Runnable {
+                override fun run() {
+                    if (!shown || !ready) return
+                    try {
+                        renderer.onDrawFrame(null)
+                        if (!EGL14.eglSwapBuffers(display, surface))
+                            throw IllegalStateException("EGL surface lost")
+                    } catch (e: Exception) {
+                        android.util.Log.e("AZWallpaper", "Render failed", e)
+                        ready = false
+                    }
+                    if (ready) handler.postDelayed(this, 1000L / fps)
+                }
+            }
+
+        override fun onCreate(holder: SurfaceHolder) {
+            super.onCreate(holder)
+            setTouchEventsEnabled(false)
+        }
+
+        override fun onSurfaceCreated(holder: SurfaceHolder) {
+            super.onSurfaceCreated(holder)
+            handler.post {
+                try {
+                    display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                    check(EGL14.eglInitialize(display, IntArray(2), 0, IntArray(2), 0))
+                    val configs = arrayOfNulls<EGLConfig>(1)
+                    val n = IntArray(1)
+                    check(
+                        EGL14.eglChooseConfig(
+                            display,
+                            intArrayOf(
+                                EGL14.EGL_RENDERABLE_TYPE,
+                                EGL14.EGL_OPENGL_ES2_BIT,
+                                EGL14.EGL_SURFACE_TYPE,
+                                EGL14.EGL_WINDOW_BIT,
+                                EGL14.EGL_RED_SIZE,
+                                8,
+                                EGL14.EGL_GREEN_SIZE,
+                                8,
+                                EGL14.EGL_BLUE_SIZE,
+                                8,
+                                EGL14.EGL_NONE,
+                            ),
+                            0,
+                            configs,
+                            0,
+                            1,
+                            n,
+                            0,
+                        ) && n[0] > 0
+                    )
+                    eglContext =
+                        EGL14.eglCreateContext(
+                            display,
+                            configs[0],
+                            EGL14.EGL_NO_CONTEXT,
+                            intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
+                            0,
+                        )
+                    surface =
+                        EGL14.eglCreateWindowSurface(
+                            display,
+                            configs[0],
+                            holder,
+                            intArrayOf(EGL14.EGL_NONE),
+                            0,
+                        )
+                    check(EGL14.eglMakeCurrent(display, surface, surface, eglContext))
+                    val store = ProjectStore(this@MotionWallpaperService)
+                    val p = store.active() ?: store.list().firstOrNull() ?: store.starter(0)
+                    fps = p.fps
+                    renderer.onSurfaceCreated(null, null)
+                    renderer.pending = p
+                    renderer.onSurfaceChanged(
+                        null,
+                        holder.surfaceFrame.width(),
+                        holder.surfaceFrame.height(),
+                    )
+                    ready = true
+                    if (shown) {
+                        handler.removeCallbacks(frame)
+                        handler.post(frame)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("AZWallpaper", "Initialization failed", e)
+                    cleanup()
+                }
+            }
+        }
+
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            super.onSurfaceChanged(holder, format, width, height)
+            handler.post { if (ready) renderer.onSurfaceChanged(null, width, height) }
+        }
+
+        override fun onVisibilityChanged(visible: Boolean) {
+            shown = visible
+            handler.removeCallbacks(frame)
+            if (visible) {
+                sensors.start(fps <= 20)
+                handler.post {
+                    try {
+                        ProjectStore(this@MotionWallpaperService).active()?.let {
+                            fps = it.fps
+                            renderer.pending = it
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("AZWallpaper", "Configuration reload failed", e)
+                    }
+                    handler.removeCallbacks(frame)
+                    handler.post(frame)
+                }
+            } else sensors.stop()
+        }
+
+        private fun cleanup() {
+            ready = false
+            handler.removeCallbacks(frame)
+            if (display != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(
+                    display,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT,
+                )
+                if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
+                if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, eglContext)
+                EGL14.eglTerminate(display)
+            }
+            display = EGL14.EGL_NO_DISPLAY
+            surface = EGL14.EGL_NO_SURFACE
+            eglContext = EGL14.EGL_NO_CONTEXT
+        }
+
+        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+            handler.post { cleanup() }
+            super.onSurfaceDestroyed(holder)
+        }
+
+        override fun onDestroy() {
+            shown = false
+            sensors.stop()
+            handler.post {
+                cleanup()
+                thread.quitSafely()
+            }
+            super.onDestroy()
+        }
     }
-    // Each transparent layer must match the full background dimensions.
-    clothingImage?.let { c.drawBitmap(it,null,RectF(clothing*0.25f,clothing,w+clothing*0.25f,h+clothing),paint) }
-    hairImage?.let { c.drawBitmap(it,null,RectF(hair,0f,w+hair,h),paint) }
-   } catch (_:Exception) {} finally { if(canvas!=null)try{holder.unlockCanvasAndPost(canvas)}catch(_:Exception){} }
-  }
- }
 }

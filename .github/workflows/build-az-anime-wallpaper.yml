@@ -1,41 +1,136 @@
 name: Build AZ Anime Wallpaper
 on:
   push:
-    branches:
-      - feature/az-anime-motion-wallpaper
-    paths:
-      - 'anime-wallpaper/**'
-      - '.github/workflows/build-az-anime-wallpaper.yml'
+    branches: [feature/az-anime-motion-wallpaper]
+    paths: ['anime-wallpaper/**', '.github/workflows/build-az-anime-wallpaper.yml']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a signed release after unit, lint and emulator checks pass'
+        type: boolean
+        default: false
+      tag:
+        description: 'Unique release tag (required when publishing)'
+        type: string
+        default: 'az-motion-v0.2.0'
+permissions:
+  contents: read
+concurrency:
+  group: az-motion-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  apk:
+  verify:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: anime-wallpaper
+    outputs:
+      signed: ${{ steps.signing.outputs.available }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify and install Android SDK
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          test -d "$ANDROID_HOME" || { echo "Android SDK missing on runner"; exit 1; }
-          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
-      - name: Install Gradle 8.9
+      - name: Compile, unit tests and lint
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+      - name: Stable signing availability
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.AZ_SIGNING_STORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.AZ_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AZ_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.AZ_SIGNING_KEY_PASSWORD }}
         run: |
-          curl -fLsS --retry 3 https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle-8.9.zip
-          unzip -q /tmp/gradle-8.9.zip -d /tmp
-      - name: Build debug APK
-        run: /tmp/gradle-8.9/bin/gradle --no-daemon --stacktrace assembleDebug
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+          if [[ -n "$KEYSTORE" && -n "$STORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Release signing is not configured. Debug APK is for testing only." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build signed release
+        if: steps.signing.outputs.available == 'true'
+        env:
+          KEYSTORE: ${{ secrets.AZ_SIGNING_STORE_BASE64 }}
+          AZ_SIGNING_STORE_PASSWORD: ${{ secrets.AZ_SIGNING_STORE_PASSWORD }}
+          AZ_SIGNING_KEY_ALIAS: ${{ secrets.AZ_SIGNING_KEY_ALIAS }}
+          AZ_SIGNING_KEY_PASSWORD: ${{ secrets.AZ_SIGNING_KEY_PASSWORD }}
+        run: |
+          export AZ_SIGNING_STORE="$RUNNER_TEMP/az-wallpaper.jks"
+          trap 'rm -f "$AZ_SIGNING_STORE"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$AZ_SIGNING_STORE"
+          ./gradlew --no-daemon assembleRelease
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: AZAnimeWallpaper-debug-apk
-          path: anime-wallpaper/app/build/outputs/apk/debug/*.apk
+          name: AZMotion-build-and-reports
+          path: |
+            anime-wallpaper/app/build/outputs/apk/
+            anime-wallpaper/app/build/reports/
           if-no-files-found: error
+  device-tests:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          script: |
+            cd anime-wallpaper && ./gradlew --no-daemon connectedDebugAndroidTest
+            adb pull /sdcard/Android/data/com.az.animewallpaper/files/ anime-wallpaper-screenshots || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AZMotion-device-test-reports
+          path: |
+            anime-wallpaper/app/build/reports/androidTests/
+            anime-wallpaper-screenshots/
+            anime-wallpaper/anime-wallpaper-screenshots/
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: [verify, device-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require production signing
+        env:
+          SIGNED: ${{ needs.verify.outputs.signed }}
+        run: test "$SIGNED" = true || { echo 'Configure the four AZ_SIGNING secrets before publishing'; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: AZMotion-build-and-reports
+          path: verified
+      - name: Publish verified signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          test -n "$TAG"
+          APK=$(find verified -name app-release.apk -print -quit)
+          test -n "$APK"
+          cp "$APK" AZ-Anime-Motion-Wallpaper-Studio.apk
+          sha256sum AZ-Anime-Motion-Wallpaper-Studio.apk > SHA256SUMS.txt
+          gh release create "$TAG" AZ-Anime-Motion-Wallpaper-Studio.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title "AZ Motion Studio $TAG" --notes-file anime-wallpaper/RELEASE_NOTES.md
