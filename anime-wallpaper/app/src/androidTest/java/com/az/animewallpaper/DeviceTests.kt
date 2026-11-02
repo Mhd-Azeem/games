@@ -372,6 +372,119 @@ class DeviceTests {
     }
 
     @Test
+    fun gridAndDockKeepAffectedAreaVisible() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                find(a.window.decorView, "Browse starter wallpapers")!!.performClick()
+                find(a.window.decorView, "Create: Anime • moonlit silhouette")!!.performClick()
+            }
+            var ready = false
+            repeat(40) {
+                if (!ready) {
+                    Thread.sleep(250)
+                    scenario.onActivity { a -> ready = overlay(a.window.decorView)?.pixels != null }
+                }
+            }
+            assertTrue(ready)
+            scenario.onActivity { a ->
+                val buttons =
+                    listOf("Undo", "Redo", "Save", "Preview", "Rename", "Focus canvas").map {
+                        find(a.window.decorView, it)!!
+                    }
+                assertTrue(
+                    buttons.all {
+                        kotlin.math.abs(it.width - buttons[0].width) <= 1 &&
+                            it.height == buttons[0].height
+                    }
+                )
+                assertEquals(buttons[0].top, buttons[1].top)
+                val gap = buttons[1].left - (buttons[0].left + buttons[0].width)
+                assertTrue(gap > 0 && gap <= 8 * a.resources.displayMetrics.density)
+                val o = overlay(a.window.decorView)!!
+                o.project.zoom = 3f
+                o.project.offsetY = -.4f
+                o.project.offsetX = .2f
+                val point = MotionPoint(name = "Lower area", x = .5f, y = .94f)
+                o.project.points.add(point)
+                o.selectedPoint = point.id
+                o.changed()
+                find(a.window.decorView, "Physics")!!.performClick()
+            }
+            Thread.sleep(500)
+            instrumentation.waitForIdleSync()
+            var originalCanvasHeight = 0
+            scenario.onActivity { a ->
+                val o = overlay(a.window.decorView)!!
+                val dock = description(a.window.decorView, "Editor settings panel")!!
+                val imageRect = Rect()
+                val dockRect = Rect()
+                o.getGlobalVisibleRect(imageRect)
+                dock.getGlobalVisibleRect(dockRect)
+                assertTrue("Settings cover the preview", imageRect.bottom <= dockRect.top)
+                assertTrue(o.fitPreview)
+                val f =
+                    ImageFrame(
+                        o.width.toFloat(),
+                        o.height.toFloat(),
+                        o.imageW,
+                        o.imageH,
+                        o.project,
+                        true,
+                    )
+                val lower = f.screen(.5f, .94f)
+                assertTrue(lower.second in 0f..o.height.toFloat())
+                assertTrue(lower.first in 0f..o.width.toFloat())
+                originalCanvasHeight = o.height
+                val header =
+                    listOf("Smaller panel", "Test motion", "Done").map {
+                        find(a.window.decorView, it)!!
+                    }
+                assertTrue(header.all { kotlin.math.abs(it.width - header[0].width) <= 1 })
+                fun seek(v: View): SeekBar? {
+                    if (v is SeekBar) return v
+                    if (v is ViewGroup)
+                        for (k in 0 until v.childCount) seek(v.getChildAt(k))?.let {
+                            return it
+                        }
+                    return null
+                }
+                val slider = seek(dock)!!
+                val down = android.os.SystemClock.uptimeMillis()
+                val x = slider.width * .9f
+                val y = slider.height / 2f
+                listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEachIndexed { i, action ->
+                    val event = MotionEvent.obtain(down, down + i * 40L, action, x, y, 0)
+                    slider.dispatchTouchEvent(event)
+                    event.recycle()
+                }
+            }
+            Thread.sleep(400)
+            val shot = instrumentation.uiAutomation.takeScreenshot()
+            File(context.getExternalFilesDir(null), "physics-visible-area.png").outputStream().use {
+                shot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            shot.recycle()
+            scenario.onActivity { a ->
+                val o = overlay(a.window.decorView)!!
+                assertTrue(o.project.points.last().physics.intensity > 1.5f)
+                find(a.window.decorView, "Test motion")!!.performClick()
+                find(a.window.decorView, "Smaller panel")!!.performClick()
+            }
+            Thread.sleep(250)
+            scenario.onActivity { a ->
+                val o = overlay(a.window.decorView)!!
+                assertTrue(o.height > originalCanvasHeight)
+                find(a.window.decorView, "Done")!!.performClick()
+                assertFalse(o.fitPreview)
+                assertEquals(3f, o.project.zoom, 0f)
+                assertEquals(-.4f, o.project.offsetY, 0f)
+                assertTrue(find(a.window.decorView, "Undo")!!.isShown)
+            }
+        }
+    }
+
+    @Test
     fun wallpaperServiceIsRegistered() {
         val info =
             context.packageManager.getServiceInfo(

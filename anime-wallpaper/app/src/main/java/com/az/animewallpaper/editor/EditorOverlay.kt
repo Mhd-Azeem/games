@@ -71,6 +71,7 @@ class EditorOverlay(context: Context) : View(context) {
     var hardness = .6f
     var opacity = .8f
     var tolerance = 35
+    var fitPreview = false
     var hidden = false
     var checkpoint: () -> Unit = {}
     var changed: () -> Unit = {}
@@ -85,6 +86,7 @@ class EditorOverlay(context: Context) : View(context) {
     private var start = 0f to 0f
     private var previousScreen = 0f to 0f
     private var multi = false
+    private var skipGesture = false
     private var maskBitmap = Bitmap.createBitmap(MASK_SIZE, MASK_SIZE, Bitmap.Config.ARGB_8888)
     private val colors = IntArray(MASK_SIZE * MASK_SIZE)
     private var maskDirty = true
@@ -111,6 +113,7 @@ class EditorOverlay(context: Context) : View(context) {
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    if (fitPreview && tool != Tool.POINT) return true
                     if (tool == Tool.POINT && selectedPoint.isNotEmpty())
                         project.points
                             .find { it.id == selectedPoint }
@@ -131,7 +134,8 @@ class EditorOverlay(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun frame() = ImageFrame(width.toFloat(), height.toFloat(), imageW, imageH, project)
+    private fun frame() =
+        ImageFrame(width.toFloat(), height.toFloat(), imageW, imageH, project, fitPreview)
 
     private fun region(): Region? = project.regions.find { it.id == selectedRegion }
 
@@ -233,6 +237,19 @@ class EditorOverlay(context: Context) : View(context) {
         if (hidden) return false
         pinch.onTouchEvent(event)
         val pos = frame().image(event.x, event.y)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            skipGesture =
+                (pos.first !in 0f..1f || pos.second !in 0f..1f) &&
+                    tool !in listOf(Tool.SELECT, Tool.MULTI_SELECT, Tool.PAN)
+        }
+        if (skipGesture) {
+            if (
+                event.actionMasked == MotionEvent.ACTION_UP ||
+                    event.actionMasked == MotionEvent.ACTION_CANCEL
+            )
+                skipGesture = false
+            return true
+        }
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             multi = true
             return true
@@ -374,11 +391,12 @@ class EditorOverlay(context: Context) : View(context) {
                         if (hypot(pos.first - previous.first, pos.second - previous.second) > .003f)
                             outline.add(pos)
                     }
-                    Tool.PAN -> {
-                        project.offsetX += (event.x - previousScreen.first) / width
-                        project.offsetY += (event.y - previousScreen.second) / height
-                        changed()
-                    }
+                    Tool.PAN ->
+                        if (!fitPreview) {
+                            project.offsetX += (event.x - previousScreen.first) / width
+                            project.offsetY += (event.y - previousScreen.second) / height
+                            changed()
+                        }
                     else -> {}
                 }
                 previous = pos

@@ -17,12 +17,16 @@ class ImageFrame(
     val imageW: Float,
     val imageH: Float,
     val p: Project,
+    val forceFit: Boolean = false,
 ) {
     private val rotated = p.rotation % 180 != 0
     private val rw = if (rotated) imageH else imageW
     private val rh = if (rotated) imageW else imageH
     private val scale =
-        (if (p.fit) min(viewW / rw, viewH / rh) else max(viewW / rw, viewH / rh)) * p.zoom
+        (if (forceFit || p.fit) min(viewW / rw, viewH / rh) else max(viewW / rw, viewH / rh)) *
+            if (forceFit) 1f else p.zoom
+    private val offsetX = if (forceFit) 0f else p.offsetX
+    private val offsetY = if (forceFit) 0f else p.offsetY
     private val angle = p.rotation * PI.toFloat() / 180
     private val c = cos(angle)
     private val s = sin(angle)
@@ -30,8 +34,8 @@ class ImageFrame(
     fun writeScreen(x: Float, y: Float, out: FloatArray) {
         val a = (x - .5f) * imageW * scale
         val b = (y - .5f) * imageH * scale
-        out[0] = viewW * (.5f + p.offsetX) + a * c - b * s
-        out[1] = viewH * (.5f + p.offsetY) + a * s + b * c
+        out[0] = viewW * (.5f + offsetX) + a * c - b * s
+        out[1] = viewH * (.5f + offsetY) + a * s + b * c
     }
 
     fun screen(x: Float, y: Float): Pair<Float, Float> {
@@ -41,8 +45,8 @@ class ImageFrame(
     }
 
     fun image(x: Float, y: Float): Pair<Float, Float> {
-        val a = x - viewW * (.5f + p.offsetX)
-        val b = y - viewH * (.5f + p.offsetY)
+        val a = x - viewW * (.5f + offsetX)
+        val b = y - viewH * (.5f + offsetY)
         return Pair(
             (a * c + b * s) / (imageW * scale) + .5f,
             (-a * s + b * c) / (imageH * scale) + .5f,
@@ -52,6 +56,9 @@ class ImageFrame(
 
 class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     @Volatile var pending: Project? = null
+    @Volatile var fitPreview = false
+    @Volatile var demoX = 0f
+    @Volatile var demoY = 0f
     @Volatile var inputX = 0f
     @Volatile var inputY = 0f
     @Volatile var paused = false
@@ -266,11 +273,17 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         val dt = if (last == 0L) 1f / 30 else ((start - last) / 1e9f).coerceIn(.001f, .05f)
         last = start
         fps = .9f * fps + .1f / dt
-        val frame = ImageFrame(width.toFloat(), height.toFloat(), imageW, imageH, p)
+        val frame = ImageFrame(width.toFloat(), height.toFloat(), imageW, imageH, p, fitPreview)
         synchronized(paintLock) {
             if (!paused)
                 springs.forEachIndexed { i, s ->
-                    s.step(inputX, inputY, if (slow) dt * .25f else dt, params[i], p.global)
+                    s.step(
+                        inputX + demoX,
+                        inputY + demoY,
+                        if (slow) dt * .25f else dt,
+                        params[i],
+                        p.global,
+                    )
                 }
             vertices.position(0)
             for (y in 0..grid) for (x in 0..grid) {
@@ -290,8 +303,8 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         }
         moving =
             !paused &&
-                (abs(inputX) > .03f ||
-                    abs(inputY) > .03f ||
+                (abs(inputX + demoX) > .03f ||
+                    abs(inputY + demoY) > .03f ||
                     springs.any { abs(it.x) + abs(it.y) > .0001f })
         vertices.position(0)
         GLES20.glUseProgram(program)

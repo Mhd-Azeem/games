@@ -43,6 +43,8 @@ class MainActivity : Activity() {
     private val undo = ArrayDeque<String>()
     private val redo = ArrayDeque<String>()
     private var sheet: Dialog? = null
+    private var editorPanel: View? = null
+    private var compactPanel = false
     private var clipboard: Physics? = null
     private var exportProject: Project? = null
     private var activeScreen = "Home"
@@ -110,29 +112,65 @@ class MainActivity : Activity() {
             setOnClickListener { action() }
         }
 
-    private fun addButton(parent: LinearLayout, label: String, action: () -> Unit) {
-        parent.addView(
-            button(label, action),
-            LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(7) },
-        )
-    }
+    private class FormActions(val items: MutableList<Pair<String, () -> Unit>>)
 
-    private fun toolbar(parent: LinearLayout, items: List<Pair<String, () -> Unit>>) {
-        val scroll =
-            HorizontalScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                isHorizontalFadingEdgeEnabled = true
-                setFadingEdgeLength(dp(12))
-            }
-        val line = row()
-        items.forEach { (name, action) ->
-            line.addView(
-                button(name, action),
-                LinearLayout.LayoutParams(-2, dp(46)).apply { marginEnd = dp(6) },
+    private fun fillGrid(grid: GridLayout, items: List<Pair<String, () -> Unit>>) {
+        grid.removeAllViews()
+        grid.columnCount = 3
+        val cells = ((items.size + 2) / 3) * 3
+        for (i in 0 until cells) {
+            val view =
+                if (i < items.size)
+                    button(items[i].first, items[i].second).apply {
+                        minWidth = 0
+                        minimumWidth = 0
+                        minimumHeight = 0
+                        textSize = 12f
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        gravity = Gravity.CENTER
+                        setPadding(dp(5), dp(2), dp(5), dp(2))
+                        tooltipText = items[i].first
+                    }
+                else Space(this)
+            grid.addView(
+                view,
+                GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = dp(44)
+                    columnSpec = GridLayout.spec(i % 3, 1f)
+                    rowSpec = GridLayout.spec(i / 3)
+                    setGravity(Gravity.FILL_HORIZONTAL)
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                },
             )
         }
-        scroll.addView(line)
-        parent.addView(scroll)
+    }
+
+    /** Consecutive actions share a row instead of making unequal full-width pills. */
+    private fun addButton(parent: LinearLayout, label: String, action: () -> Unit) {
+        val last = parent.getChildAt(parent.childCount - 1) as? GridLayout
+        val existing = last?.tag as? FormActions
+        if (last != null && existing != null) {
+            existing.items.add(label to action)
+            fillGrid(last, existing.items)
+        } else {
+            val actions = FormActions(mutableListOf(label to action))
+            val grid =
+                GridLayout(this).apply {
+                    contentDescription = "Action grid"
+                    tag = actions
+                }
+            fillGrid(grid, actions.items)
+            parent.addView(grid, LinearLayout.LayoutParams(-1, -2))
+        }
+    }
+
+    /** Fixed cells, including empty final cells, keep action widths consistent. */
+    private fun toolbar(parent: LinearLayout, items: List<Pair<String, () -> Unit>>) {
+        val grid = GridLayout(this).apply { contentDescription = "Action grid" }
+        fillGrid(grid, items)
+        parent.addView(grid, LinearLayout.LayoutParams(-1, -2))
     }
 
     private fun page(title: String, back: (() -> Unit)? = null): LinearLayout {
@@ -244,6 +282,10 @@ class MainActivity : Activity() {
 
     @Deprecated("Android activity back handling")
     override fun onBackPressed() {
+        if (editorPanel != null) {
+            dismissSheet()
+            return
+        }
         if (preview) {
             preview = false
             editor()
@@ -274,7 +316,7 @@ class MainActivity : Activity() {
         gl = null
         renderer = null
         overlay = null
-        sheet?.dismiss()
+        dismissSheet()
         sheet = null
     }
 
@@ -539,11 +581,12 @@ class MainActivity : Activity() {
                             editor()
                         }
                     },
+                "Focus canvas" to { setEditorFocus(!editorFocused) },
             ),
         )
         editorChrome.add(parent.getChildAt(parent.childCount - 1))
         canvas(parent, true)
-        val status = text("Select or drag points • pinch to zoom • Pan to reposition", 12f, muted)
+        val status = text("", 12f, muted)
         parent.addView(status)
         editorChrome.add(status)
         fun setTool(t: Tool) {
@@ -574,6 +617,51 @@ class MainActivity : Activity() {
                 }
             updatePointActions()
         }
+        fun choose(t: Tool) {
+            setTool(t)
+            dismissSheet()
+        }
+        fun tools() {
+            bottom("Editor tools") { box ->
+                toolbar(
+                    box,
+                    listOf(
+                        "Lasso" to { choose(Tool.LASSO) },
+                        "Polygon" to { choose(Tool.POLYGON) },
+                        "Close polygon" to
+                            {
+                                overlay?.finishPolygon()
+                                dismissSheet()
+                            },
+                        "Ellipse" to { choose(Tool.ELLIPSE) },
+                        "Rectangle" to { choose(Tool.RECTANGLE) },
+                        "Wand" to { choose(Tool.WAND) },
+                        "Pan" to { choose(Tool.PAN) },
+                        "Global physics" to
+                            {
+                                overlay?.selectedPoint = ""
+                                overlay?.selectedRegion = ""
+                                physicsSheet()
+                            },
+                        "Brush options" to { brushSheet() },
+                        "Crop / frame" to { frameSheet() },
+                        "Hide markers" to
+                            {
+                                overlay?.let {
+                                    it.hidden = !it.hidden
+                                    it.invalidate()
+                                }
+                                dismissSheet()
+                            },
+                        "Project" to
+                            {
+                                dismissSheet()
+                                projectMenu(p)
+                            },
+                    ),
+                )
+            }
+        }
         toolbar(
             parent,
             listOf(
@@ -583,37 +671,9 @@ class MainActivity : Activity() {
                 "Brush" to { setTool(Tool.BRUSH) },
                 "Eraser" to { setTool(Tool.ERASER) },
                 "Lasso" to { setTool(Tool.LASSO) },
-                "Polygon" to { setTool(Tool.POLYGON) },
-                "Close polygon" to { overlay?.finishPolygon() },
-                "Ellipse" to { setTool(Tool.ELLIPSE) },
-                "Rectangle" to { setTool(Tool.RECTANGLE) },
-                "Wand" to { setTool(Tool.WAND) },
-                "Pan" to { setTool(Tool.PAN) },
-            ),
-        )
-        editorChrome.add(parent.getChildAt(parent.childCount - 1))
-        toolbar(
-            parent,
-            listOf(
                 "Layers" to { layers() },
                 "Physics" to { physicsSheet() },
-                "Global physics" to
-                    {
-                        overlay?.selectedPoint = ""
-                        overlay?.selectedRegion = ""
-                        physicsSheet()
-                    },
-                "Brush options" to { brushSheet() },
-                "Crop / frame" to { frameSheet() },
-                "Focus canvas" to { setEditorFocus(!editorFocused) },
-                "Hide markers" to
-                    {
-                        overlay?.let {
-                            it.hidden = !it.hidden
-                            it.invalidate()
-                        }
-                    },
-                "Project" to { projectMenu(p) },
+                "Tools" to { tools() },
             ),
         )
         editorChrome.add(parent.getChildAt(parent.childCount - 1))
@@ -624,7 +684,8 @@ class MainActivity : Activity() {
     private fun updatePointActions() {
         val count = overlay?.selectedPoints?.size ?: 0
         pointCount?.text = "$count selected"
-        pointActionBar?.visibility = if (count > 0) View.VISIBLE else View.GONE
+        pointActionBar?.visibility =
+            if (count > 0 && editorPanel == null) View.VISIBLE else View.GONE
         overlay?.invalidate()
     }
 
@@ -642,8 +703,10 @@ class MainActivity : Activity() {
 
     private fun setEditorFocus(focused: Boolean) {
         editorFocused = focused
-        editorChrome.forEach { it.visibility = if (focused) View.GONE else View.VISIBLE }
-        showTools?.visibility = if (focused) View.VISIBLE else View.GONE
+        editorChrome.forEach {
+            it.visibility = if (focused || editorPanel != null) View.GONE else View.VISIBLE
+        }
+        showTools?.visibility = if (focused && editorPanel == null) View.VISIBLE else View.GONE
     }
 
     private fun canvas(parent: LinearLayout, editing: Boolean) {
@@ -671,27 +734,27 @@ class MainActivity : Activity() {
             o.restorePoints(editorPointIds)
             container.addView(o, FrameLayout.LayoutParams(-1, -1))
             val actions =
-                row().apply {
+                column().apply {
                     background = round(surface, 18)
                     elevation = dp(6).toFloat()
-                    setPadding(dp(6), dp(3), dp(6), dp(3))
+                    setPadding(dp(4), dp(2), dp(4), dp(2))
                 }
-            pointCount = text("", 13f)
+            pointCount = text("", 13f).apply { gravity = Gravity.CENTER }
             actions.addView(pointCount)
-            actions.addView(button("Remove points") { removePoints() })
-            actions.addView(
-                button("All") { o.selectAllPoints() }
-                    .apply { contentDescription = "Select all points" }
-            )
-            actions.addView(
-                button("Clear") { o.clearPoints() }
-                    .apply { contentDescription = "Clear point selection" }
+            toolbar(
+                actions,
+                listOf(
+                    "Remove points" to { removePoints() },
+                    "All" to { o.selectAllPoints() },
+                    "Clear" to { o.clearPoints() },
+                ),
             )
             pointActionBar = actions
             container.addView(
                 actions,
-                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-                    .apply { bottomMargin = dp(8) },
+                FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
+                    setMargins(dp(8), 0, dp(8), dp(8))
+                },
             )
             val restore = button("Show tools") { setEditorFocus(false) }
             showTools = restore
@@ -755,8 +818,105 @@ class MainActivity : Activity() {
         changed()
     }
 
-    private fun bottom(title: String, build: (LinearLayout) -> Unit) {
+    private fun dismissSheet(restoreCanvas: Boolean = true) {
+        val panel = editorPanel
+        editorPanel = null
+        (panel?.parent as? ViewGroup)?.removeView(panel)
         sheet?.dismiss()
+        sheet = null
+        if (restoreCanvas) {
+            overlay?.fitPreview = false
+            renderer?.fitPreview = false
+            setEditorFocus(editorFocused)
+            updatePointActions()
+        }
+    }
+
+    private fun testMotion() {
+        val r = renderer ?: return
+        val started = SystemClock.uptimeMillis()
+        val demo =
+            object : Runnable {
+                override fun run() {
+                    if (renderer !== r) {
+                        r.demoX = 0f
+                        r.demoY = 0f
+                        return
+                    }
+                    val t = (SystemClock.uptimeMillis() - started) / 1000f
+                    if (t < 1.8f) {
+                        r.demoX = sin(t * 12) * .85f
+                        r.demoY = cos(t * 9) * .65f
+                        handler.postDelayed(this, 16)
+                    } else {
+                        r.demoX = 0f
+                        r.demoY = 0f
+                    }
+                }
+            }
+        handler.post(demo)
+    }
+
+    private fun bottom(title: String, build: (LinearLayout) -> Unit) {
+        if (activeScreen != "Editor" || overlay == null) {
+            modalBottom(title, build)
+            return
+        }
+        dismissSheet(false)
+        val panel =
+            column().apply {
+                background = round(surface, 22)
+                setPadding(0, dp(4), 0, dp(4))
+                contentDescription = "Editor settings panel"
+            }
+        editorPanel = panel
+        val head =
+            text(title, 17f).apply {
+                setPadding(dp(10), dp(2), dp(10), dp(2))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+        panel.addView(head)
+        fun resize() {
+            val available =
+                (root.height - root.paddingTop - root.paddingBottom).coerceAtLeast(dp(300))
+            panel.layoutParams =
+                LinearLayout.LayoutParams(
+                    -1,
+                    (available * (if (compactPanel) .28f else .40f))
+                        .toInt()
+                        .coerceIn(dp(120), maxOf(dp(120), available - dp(150))),
+                )
+        }
+        toolbar(
+            panel,
+            listOf(
+                (if (compactPanel) "Larger panel" else "Smaller panel") to
+                    {
+                        compactPanel = !compactPanel
+                        resize()
+                        val buttons = panel.getChildAt(1) as GridLayout
+                        (buttons.getChildAt(0) as Button).text =
+                            if (compactPanel) "Larger panel" else "Smaller panel"
+                    },
+                "Test motion" to { testMotion() },
+                "Done" to { dismissSheet() },
+            ),
+        )
+        val content = scroll(panel).apply { setPadding(dp(8), 0, dp(8), dp(4)) }
+        build(content)
+        root.addView(panel)
+        resize()
+        val fullImage = title != "Crop & framing"
+        overlay?.fitPreview = fullImage
+        renderer?.fitPreview = fullImage
+        overlay?.dirty()
+        setEditorFocus(editorFocused)
+        updatePointActions()
+    }
+
+    private fun modalBottom(title: String, build: (LinearLayout) -> Unit) {
+        dismissSheet()
         val dialog = Dialog(this)
         sheet = dialog
         val box =
@@ -886,28 +1046,28 @@ class MainActivity : Activity() {
         val region = selectedRegion()
         val config = point?.physics ?: region?.physics ?: p.global
         bottom(point?.name ?: region?.name ?: "Global physics") { box ->
-            addButton(box, "Preset: Gentle / Natural / Soft / Elastic / Strong") {
-                choices(
-                    "Physics preset",
-                    listOf("Gentle", "Natural", "Soft", "Elastic", "Strong"),
-                ) { i ->
-                    snapshot()
-                    val values =
-                        listOf(
-                            Physics(.3f, stiffness = 45f, damping = 70f),
-                            Physics(),
-                            Physics(.65f, stiffness = 20f, damping = 65f),
-                            Physics(.9f, stiffness = 30f, damping = 15f),
-                            Physics(1.3f, stiffness = 60f, damping = 40f),
-                        )
-                    val v = values[i]
-                    config.intensity = v.intensity
-                    config.stiffness = v.stiffness
-                    config.damping = v.damping
-                    changed()
-                    physicsSheet()
-                }
-            }
+            toolbar(
+                box,
+                listOf("Gentle", "Natural", "Soft", "Elastic", "Strong").mapIndexed { i, name ->
+                    name to
+                        {
+                            snapshot()
+                            val v =
+                                listOf(
+                                    Physics(.3f, stiffness = 45f, damping = 70f),
+                                    Physics(),
+                                    Physics(.65f, stiffness = 20f, damping = 65f),
+                                    Physics(.9f, stiffness = 30f, damping = 15f),
+                                    Physics(1.3f, stiffness = 60f, damping = 40f),
+                                )[i]
+                            config.intensity = v.intensity
+                            config.stiffness = v.stiffness
+                            config.damping = v.damping
+                            changed()
+                            physicsSheet()
+                        }
+                },
+            )
             slider(box, "Intensity %", config.intensity * 100, 0f, 200f) {
                 config.intensity = it / 100
             }
@@ -1045,7 +1205,7 @@ class MainActivity : Activity() {
             }
             addButton(box, "Remove selected points") {
                 removePoints(points.map { it.id }.toSet())
-                sheet?.dismiss()
+                dismissSheet()
             }
         }
     }
@@ -1123,7 +1283,7 @@ class MainActivity : Activity() {
                                 overlay?.selectedRegion = r.id
                                 overlay?.selectedPoint = ""
                                 overlay?.dirty()
-                                sheet?.dismiss()
+                                dismissSheet()
                             },
                         "Physics" to
                             {
@@ -1156,7 +1316,7 @@ class MainActivity : Activity() {
                     "Select all points" to
                         {
                             overlay?.selectAllPoints()
-                            sheet?.dismiss()
+                            dismissSheet()
                         },
                     "Remove selected" to
                         {
@@ -1547,7 +1707,7 @@ class MainActivity : Activity() {
     private fun settings() {
         val parent = page("Settings") { home() }
         val box = scroll(parent)
-        addButton(box, "Performance: Battery saver / Balanced / High quality") {
+        addButton(box, "Performance mode") {
             choices(
                 "Performance mode",
                 listOf(

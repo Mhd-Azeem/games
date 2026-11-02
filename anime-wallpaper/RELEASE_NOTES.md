@@ -1,3 +1,5 @@
+Layout update 0.4: equal-width three-column action grids with small gaps; docked settings below a live, full-image preview; adjustable panel size; Test motion while tuning; saved crop preserved.
+
 Editing update 0.3: multi-point tap selection, group dragging, bulk removal with Undo, batch point physics, floating selection actions and Focus canvas. Remove cards from Recents with × without deleting saved projects. Existing project format remains compatible.
 
 AZ Anime Motion Wallpaper Studio

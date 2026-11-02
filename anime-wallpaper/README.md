@@ -46,3 +46,9 @@ Local signed builds use `AZ_SIGNING_STORE` (absolute keystore path) and the pass
 Use **Multi-select** and tap point handles to toggle them. Drag any selected handle to move the whole selection; group spacing is preserved at image edges. The floating point bar offers Remove points, All and Clear. Removal supports Undo. Physics on multiple selected points opens batch controls; only the changed field is shared. **Focus canvas** hides editing toolbars, with Show tools to restore them. Selection survives preview navigation and activity recreation.
 
 The **×** on a Home recent card hides that item from Recents. It keeps the saved project and currently applied wallpaper. Open it in My Wallpapers to return it to Recents, or use Restore removed recent items.
+
+## Layout update 0.4
+
+Actions now use three equal-width columns, 44 dp height and 4 dp gaps, without horizontal button scrolling. The main editor exposes the common tools; Tools opens the remaining actions in the same grid.
+
+Editor settings are docked below a resized live canvas. Physics and selection panels temporarily fit the full image so lower regions remain visible, with no dimming or overlap. This changes only the editor view, not the project's saved crop, zoom or offsets. Crop & framing continues to preview the actual saved framing. Smaller panel gives the artwork more space; Test motion simulates movement without leaving the settings panel. Done or Back restores normal editing.

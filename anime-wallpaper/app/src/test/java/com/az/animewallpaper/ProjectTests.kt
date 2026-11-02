@@ -8,6 +8,41 @@ import org.junit.Test
 
 class ProjectTests {
     @Test
+    fun settingsPreviewFitsWholeImageWithoutChangingSavedCrop() {
+        val p = Project(zoom = 3f, offsetX = .4f, offsetY = -.3f, rotation = 0)
+        val preview = ImageFrame(1080f, 850f, 720f, 1280f, p, true)
+        val corners = listOf(0f to 0f, 1f to 0f, 0f to 1f, 1f to 1f)
+        corners.forEach {
+            val screen = preview.screen(it.first, it.second)
+            assertTrue(screen.first >= -.001f && screen.first <= 1080.001f)
+            assertTrue(screen.second >= -.001f && screen.second <= 850.001f)
+        }
+        val selected = preview.screen(.5f, .95f)
+        val source = preview.image(selected.first, selected.second)
+        assertEquals(.95f, source.second, .0001f)
+        assertEquals(3f, p.zoom, 0f)
+        assertEquals(.4f, p.offsetX, 0f)
+        assertEquals(-.3f, p.offsetY, 0f)
+        val crop = ImageFrame(1080f, 850f, 720f, 1280f, p)
+        assertNotEquals(crop.screen(.5f, .95f), selected)
+    }
+
+    @Test
+    fun settingsPreviewAlsoFitsRotatedLandscapeArt() {
+        val p = Project(zoom = 4f, offsetX = .5f, offsetY = .5f, rotation = 90)
+        val f = ImageFrame(700f, 450f, 1920f, 1080f, p, true)
+        listOf(0f to 0f, 1f to 0f, 0f to 1f, 1f to 1f).forEach {
+            val v = f.screen(it.first, it.second)
+            assertTrue(v.first >= -.001f && v.first <= 700.001f)
+            assertTrue(v.second >= -.001f && v.second <= 450.001f)
+        }
+        val v = f.screen(.3f, .8f)
+        val restored = f.image(v.first, v.second)
+        assertEquals(.3f, restored.first, .0001f)
+        assertEquals(.8f, restored.second, .0001f)
+    }
+
+    @Test
     fun roundTripKeepsAllEditorData() {
         val p =
             Project(
