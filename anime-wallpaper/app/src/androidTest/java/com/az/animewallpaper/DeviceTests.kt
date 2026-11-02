@@ -73,14 +73,25 @@ class DeviceTests {
         assertTrue(File(copy.image).exists())
         val invalid = ByteArrayOutputStream()
         java.util.zip.ZipOutputStream(invalid).use {
-            it.putNextEntry(java.util.zip.ZipEntry("../outside"))
+            it.putNextEntry(java.util.zip.ZipEntry("aa/outside"))
             it.write(1)
             it.closeEntry()
         }
+        val unsafe = invalid.toByteArray()
+        val from = "aa/outside".toByteArray()
+        val to = "../outside".toByteArray()
+        for (offset in 0..unsafe.size - from.size) {
+            if (from.indices.all { unsafe[offset + it] == from[it] }) to.copyInto(unsafe, offset)
+        }
         try {
-            store.importProject(ByteArrayInputStream(invalid.toByteArray()))
+            store.importProject(ByteArrayInputStream(unsafe))
             fail("Traversal archive accepted")
-        } catch (_: IllegalArgumentException) {}
+        } catch (_: IllegalArgumentException) {
+            // Application-level path validation on older Android versions.
+        } catch (_: java.util.zip.ZipException) {
+            // Android 14+ rejects traversal before nextEntry reaches our validator.
+        }
+        assertFalse(File(context.cacheDir, "outside").exists())
         store.delete(p)
         store.delete(copy)
     }
