@@ -761,7 +761,7 @@ class MainActivity : Activity() {
                     max = 150
                     progress = (p.spatial.strength * 100).toInt()
                 }
-            box.addView(text("Depth strength (safe motion capped at 80%)"))
+            box.addView(text("Depth strength • 0–150%"))
             box.addView(strength)
             strength.setOnSeekBarChangeListener(
                 object : SeekBar.OnSeekBarChangeListener {
