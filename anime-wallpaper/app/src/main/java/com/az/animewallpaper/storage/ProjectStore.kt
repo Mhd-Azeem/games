@@ -14,7 +14,7 @@ import kotlin.math.*
 import org.json.*
 
 object Codec {
-    const val VERSION = 1
+    const val VERSION = 2
 
     fun physics(p: Physics) =
         JSONObject()
@@ -103,6 +103,23 @@ object Codec {
             .put("fps", p.fps)
             .put("quality", p.quality)
             .put("overlay", p.overlay)
+            .put(
+                "spatial",
+                JSONObject()
+                    .put("enabled", p.spatial.enabled)
+                    .put("kind", p.spatial.kind)
+                    .put("strength", p.spatial.strength)
+                    .put("smoothing", p.spatial.smoothing)
+                    .put(
+                        "depth",
+                        Base64.getEncoder()
+                            .encodeToString(
+                                ByteArray(p.spatial.depth.size) {
+                                    (p.spatial.depth[it].coerceIn(0f, 1f) * 255).toInt().toByte()
+                                }
+                            ),
+                    ),
+            )
             .toString()
     }
 
@@ -127,6 +144,23 @@ object Codec {
         p.fps = o.optInt("fps", 30).coerceIn(15, 60)
         p.quality = o.optInt("quality", 64).coerceIn(24, 96)
         p.overlay = o.optDouble("overlay", 0.4).toFloat().coerceIn(0f, 1f)
+        o.optJSONObject("spatial")?.let { a ->
+            val bytes = Base64.getDecoder().decode(a.getString("depth"))
+            require(bytes.size == MASK_SIZE * MASK_SIZE) { "Invalid spatial map" }
+            val kind = a.optString("kind", "none")
+            require(kind in listOf("none", "subject", "scene")) { "Invalid spatial mode" }
+            val strength = a.optDouble("strength", .7).toFloat()
+            val smoothing = a.optDouble("smoothing", .7).toFloat()
+            require(strength.isFinite() && smoothing.isFinite())
+            p.spatial =
+                SpatialSettings(
+                    a.optBoolean("enabled") && kind != "none",
+                    kind,
+                    strength.coerceIn(0f, 1.5f),
+                    smoothing.coerceIn(0f, 1f),
+                    FloatArray(bytes.size) { (bytes[it].toInt() and 255) / 255f },
+                )
+        }
         val points = o.getJSONArray("points")
         require(points.length() <= 512) { "Maximum 512 points" }
         for (i in 0 until points.length()) {

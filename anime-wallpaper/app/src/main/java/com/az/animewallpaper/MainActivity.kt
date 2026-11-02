@@ -572,15 +572,7 @@ class MainActivity : Activity() {
                         preview = true
                         previewScreen()
                     },
-                "Rename" to
-                    {
-                        nameDialog(p.name) {
-                            snapshot()
-                            p.name = it
-                            changed()
-                            editor()
-                        }
-                    },
+                (if (p.spatial.enabled) "Spatial on" else "Spatial") to { toggleSpatial() },
                 "Focus canvas" to { setEditorFocus(!editorFocused) },
             ),
         )
@@ -645,6 +637,7 @@ class MainActivity : Activity() {
                             },
                         "Brush options" to { brushSheet() },
                         "Crop / frame" to { frameSheet() },
+                        "Spatial settings" to { spatialSettings() },
                         "Hide markers" to
                             {
                                 overlay?.let {
@@ -679,6 +672,114 @@ class MainActivity : Activity() {
         editorChrome.add(parent.getChildAt(parent.childCount - 1))
         setTool(editorTool)
         setEditorFocus(editorFocused)
+    }
+
+    private fun toggleSpatial() {
+        val p = project ?: return
+        if (p.spatial.kind != "none") {
+            snapshot()
+            p.spatial.enabled = !p.spatial.enabled
+            changed()
+            saveQuiet()
+            editor()
+            return
+        }
+        analyzeSpatial()
+    }
+
+    private fun analyzeSpatial() {
+        val p = project ?: return
+        dismissSheet()
+        val previousOrientation = requestedOrientation
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        val progress = ProgressBar(this)
+        val box =
+            column().apply {
+                setPadding(dp(24), dp(24), dp(24), dp(24))
+                addView(progress)
+                addView(text("Analyzing photo offline…"))
+            }
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle("Creating Spatial wallpaper")
+                .setView(box)
+                .setCancelable(false)
+                .create()
+        dialog.show()
+        io.execute {
+            val result = runCatching {
+                com.az.animewallpaper.spatial.SpatialAnalyzer(this).analyze(p.image)
+            }
+            handler.post {
+                dialog.dismiss()
+                if (!isFinishing && !isDestroyed && project?.id == p.id) {
+                    result
+                        .onSuccess {
+                            snapshot()
+                            p.spatial = it
+                            changed()
+                            saveQuiet()
+                            editor()
+                            message(
+                                if (it.kind == "subject") "Spatial on • subject detected"
+                                else "Spatial on • estimated scene depth"
+                            )
+                        }
+                        .onFailure {
+                            message(
+                                "Spatial analysis failed: ${it.message ?: "Unable to read photo"}"
+                            )
+                        }
+                }
+                requestedOrientation = previousOrientation
+            }
+        }
+    }
+
+    private fun spatialSettings() {
+        val p = project ?: return
+        bottom("Spatial wallpaper") { box ->
+            box.addView(
+                text(
+                    when (p.spatial.kind) {
+                        "subject" -> "Subject separated • background repair is approximate"
+                        "scene" -> "Estimated scene depth • no clear subject detected"
+                        else -> "Tap Spatial to analyze the photo automatically"
+                    },
+                    13f,
+                    muted,
+                )
+            )
+            addButton(box, if (p.spatial.enabled) "Disable Spatial" else "Enable Spatial") {
+                dismissSheet()
+                toggleSpatial()
+            }
+            addButton(box, "Analyze again") { analyzeSpatial() }
+            // Settings use the same live preview as the wallpaper service.
+            val strength =
+                SeekBar(this).apply {
+                    max = 150
+                    progress = (p.spatial.strength * 100).toInt()
+                }
+            box.addView(text("Depth strength"))
+            box.addView(strength)
+            strength.setOnSeekBarChangeListener(
+                object : SeekBar.OnSeekBarChangeListener {
+                    override fun onStartTrackingTouch(s: SeekBar) {
+                        snapshot()
+                    }
+
+                    override fun onStopTrackingTouch(s: SeekBar) {}
+
+                    override fun onProgressChanged(s: SeekBar, v: Int, user: Boolean) {
+                        if (user) {
+                            p.spatial.strength = v / 100f
+                            changed()
+                        }
+                    }
+                }
+            )
+        }
     }
 
     private fun updatePointActions() {

@@ -111,7 +111,9 @@ class ProjectTests {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsFutureVersion() {
-        Codec.decode(Codec.encode(Project()).replace("\"version\":1", "\"version\":500"))
+        Codec.decode(
+            Codec.encode(Project()).replace("\"version\":${Codec.VERSION}", "\"version\":500")
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)

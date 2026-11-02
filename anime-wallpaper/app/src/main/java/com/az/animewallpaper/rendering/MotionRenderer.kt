@@ -5,6 +5,7 @@ import android.opengl.*
 import com.az.animewallpaper.models.*
 import com.az.animewallpaper.physics.*
 import com.az.animewallpaper.selection.Masks
+import com.az.animewallpaper.spatial.*
 import com.az.animewallpaper.storage.ProjectStore
 import java.nio.*
 import javax.microedition.khronos.egl.EGLConfig
@@ -73,6 +74,9 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private var imageW = 720f
     private var imageH = 1280f
     private var program = 0
+    private var foregroundTexture = 0
+    private var spatialStamp = 0
+    private val spatialMotion = SpatialMotion()
     private var texture = 0
     private var width = 1
     private var height = 1
@@ -89,7 +93,10 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private val position = FloatArray(2)
 
     fun reset() {
-        synchronized(paintLock) { springs.forEach { it.reset() } }
+        synchronized(paintLock) {
+            springs.forEach { it.reset() }
+            spatialMotion.reset()
+        }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -121,22 +128,33 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         val ok = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, ok, 0)
         check(ok[0] != 0) { GLES20.glGetProgramInfoLog(program) }
-        val ids = IntArray(1)
-        GLES20.glGenTextures(1, ids, 0)
+        val ids = IntArray(2)
+        GLES20.glGenTextures(2, ids, 0)
         texture = ids[0]
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_S,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_T,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
+        foregroundTexture = ids[1]
+        for (id in ids) {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MIN_FILTER,
+                GLES20.GL_LINEAR,
+            )
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MAG_FILTER,
+                GLES20.GL_LINEAR,
+            )
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_S,
+                GLES20.GL_CLAMP_TO_EDGE,
+            )
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_T,
+                GLES20.GL_CLAMP_TO_EDGE,
+            )
+        }
         path = ""
         if (pending == null && p.image.isNotEmpty()) pending = p
         last = 0
@@ -151,11 +169,33 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private fun configure(next: Project) {
         p = next
         val stamp = java.io.File(p.image).lastModified() xor p.id.hashCode().toLong()
-        if (path != p.image || imageStamp != stamp) {
-            val b = ProjectStore(context).decode(p.image, 2048)
+        val layered = p.spatial.enabled && p.spatial.kind == "subject"
+        val layerStamp = if (layered) p.spatial.depth.contentHashCode() else 0
+        if (path != p.image || imageStamp != stamp || spatialStamp != layerStamp) {
+            val b = ProjectStore(context).decode(p.image, if (layered) 1600 else 2048)
             imageW = b.width.toFloat()
             imageH = b.height.toFloat()
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, b, 0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            if (layered) {
+                val (background, foreground) = SpatialLayers.build(b, p.spatial.depth)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, background, 0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, foregroundTexture)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, foreground, 0)
+                background.recycle()
+                foreground.recycle()
+            } else {
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, b, 0)
+                val empty =
+                    android.graphics.Bitmap.createBitmap(
+                        1,
+                        1,
+                        android.graphics.Bitmap.Config.ARGB_8888,
+                    )
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, foregroundTexture)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, empty, 0)
+                empty.recycle()
+            }
+            spatialStamp = layerStamp
             b.recycle()
             path = p.image
             imageStamp = stamp
@@ -274,8 +314,14 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         last = start
         fps = .9f * fps + .1f / dt
         val frame = ImageFrame(width.toFloat(), height.toFloat(), imageW, imageH, p, fitPreview)
+        GLES20.glUseProgram(program)
+        val pos = GLES20.glGetAttribLocation(program, "aPosition")
+        val tex = GLES20.glGetAttribLocation(program, "aUv")
+        GLES20.glEnableVertexAttribArray(pos)
+        GLES20.glEnableVertexAttribArray(tex)
+        GLES20.glVertexAttribPointer(tex, 2, GLES20.GL_FLOAT, false, 0, uv)
         synchronized(paintLock) {
-            if (!paused)
+            if (!paused) {
                 springs.forEachIndexed { i, s ->
                     s.step(
                         inputX + demoX,
@@ -285,37 +331,81 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                         p.global,
                     )
                 }
-            vertices.position(0)
-            for (y in 0..grid) for (x in 0..grid) {
-                val k = y * (grid + 1) + x
-                var dx = 0f
-                var dy = 0f
-
-                for (i in springs.indices) {
-                    val w = weights[i][k]
-                    dx = dx * (1 - w) + springs[i].x * w
-                    dy = dy * (1 - w) + springs[i].y * w
+                if (p.spatial.enabled) {
+                    val angle = -p.rotation * PI.toFloat() / 180
+                    val sx = inputX + demoX
+                    val sy = inputY + demoY
+                    spatialMotion.step(
+                        sx * cos(angle) - sy * sin(angle),
+                        sx * sin(angle) + sy * cos(angle),
+                        if (slow) dt * .25f else dt,
+                        p.spatial.smoothing,
+                    )
                 }
-                frame.writeScreen(x.toFloat() / grid + dx, y.toFloat() / grid + dy, position)
-                vertices.put(position[0] / width * 2 - 1)
-                vertices.put(1 - position[1] / height * 2)
             }
+            val layered = p.spatial.enabled && p.spatial.kind == "subject"
+            for (layer in 0 until if (layered) 2 else 1) {
+                vertices.position(0)
+                for (y in 0..grid) for (x in 0..grid) {
+                    val k = y * (grid + 1) + x
+                    val u = x.toFloat() / grid
+                    val v = y.toFloat() / grid
+                    var dx = 0f
+                    var dy = 0f
+                    for (i in springs.indices) {
+                        val w = weights[i][k]
+                        dx = dx * (1 - w) + springs[i].x * w
+                        dy = dy * (1 - w) + springs[i].y * w
+                    }
+                    if (p.spatial.enabled) {
+                        val depth =
+                            if (layered) {
+                                if (layer == 0) -.18f else .7f
+                            } else Masks.sample(p.spatial.depth, u, v) * .8f - .2f
+                        if (layered && layer == 0) {
+                            val a = 1 - Masks.sample(p.spatial.depth, u, v)
+                            dx *= a
+                            dy *= a
+                        }
+                        spatialMotion.transform(
+                            .5f + (u + dx - .5f) * 1.07f,
+                            .5f + (v + dy - .5f) * 1.07f,
+                            depth,
+                            imageH / imageW,
+                            p.spatial.strength,
+                            position,
+                        )
+                        frame.writeScreen(position[0], position[1], position)
+                    } else frame.writeScreen(u + dx, v + dy, position)
+                    vertices.put(position[0] / width * 2 - 1)
+                    vertices.put(1 - position[1] / height * 2)
+                }
+                vertices.position(0)
+                if (layer == 1) {
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                }
+                GLES20.glBindTexture(
+                    GLES20.GL_TEXTURE_2D,
+                    if (layer == 0) texture else foregroundTexture,
+                )
+                GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, vertices)
+                GLES20.glDrawElements(
+                    GLES20.GL_TRIANGLES,
+                    indexCount,
+                    GLES20.GL_UNSIGNED_SHORT,
+                    indices,
+                )
+            }
+            GLES20.glDisable(GLES20.GL_BLEND)
+            moving =
+                !paused &&
+                    (abs(inputX + demoX) > .03f ||
+                        abs(inputY + demoY) > .03f ||
+                        (p.spatial.enabled &&
+                            abs(spatialMotion.x) + abs(spatialMotion.y) > .0001f) ||
+                        springs.any { abs(it.x) + abs(it.y) > .0001f })
         }
-        moving =
-            !paused &&
-                (abs(inputX + demoX) > .03f ||
-                    abs(inputY + demoY) > .03f ||
-                    springs.any { abs(it.x) + abs(it.y) > .0001f })
-        vertices.position(0)
-        GLES20.glUseProgram(program)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-        val pos = GLES20.glGetAttribLocation(program, "aPosition")
-        val tex = GLES20.glGetAttribLocation(program, "aUv")
-        GLES20.glEnableVertexAttribArray(pos)
-        GLES20.glEnableVertexAttribArray(tex)
-        GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, vertices)
-        GLES20.glVertexAttribPointer(tex, 2, GLES20.GL_FLOAT, false, 0, uv)
-        GLES20.glDrawElements(GLES20.GL_TRIANGLES, indexCount, GLES20.GL_UNSIGNED_SHORT, indices)
         renderMs = (System.nanoTime() - start) / 1e6f
     }
 }

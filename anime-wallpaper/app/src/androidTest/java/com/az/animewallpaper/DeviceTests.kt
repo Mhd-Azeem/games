@@ -24,6 +24,76 @@ class DeviceTests {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
+    fun oneTapSpatialAnalyzesSavesAndToggles() {
+        val store = ProjectStore(context)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                find(a.window.decorView, "Browse starter wallpapers")!!.performClick()
+                find(a.window.decorView, "Create: Anime • moonlit silhouette")!!.performClick()
+            }
+            var ready = false
+            repeat(40) {
+                if (!ready) {
+                    Thread.sleep(250)
+                    scenario.onActivity { a -> ready = find(a.window.decorView, "Spatial") != null }
+                }
+            }
+            assertTrue(ready)
+            scenario.onActivity { a -> find(a.window.decorView, "Spatial")!!.performClick() }
+            var enabled = false
+            repeat(120) {
+                if (!enabled) {
+                    Thread.sleep(250)
+                    scenario.onActivity { a ->
+                        enabled = find(a.window.decorView, "Spatial on") != null
+                    }
+                }
+            }
+            assertTrue("One-tap analysis did not finish", enabled)
+            var id = ""
+            scenario.onActivity { a ->
+                val p = overlay(a.window.decorView)!!.project
+                id = p.id
+                assertTrue(p.spatial.enabled)
+                assertTrue(p.spatial.kind in listOf("subject", "scene"))
+                assertTrue(p.spatial.depth.all { it.isFinite() && it in 0f..1f })
+                find(a.window.decorView, "Spatial on")!!.performClick()
+                assertFalse(overlay(a.window.decorView)!!.project.spatial.enabled)
+                find(a.window.decorView, "Spatial")!!.performClick()
+                assertTrue(overlay(a.window.decorView)!!.project.spatial.enabled)
+            }
+            Thread.sleep(1000)
+            assertTrue(store.load(id).spatial.enabled)
+            store.setActive(store.load(id))
+            assertArrayEquals(store.load(id).spatial.depth, store.active()!!.spatial.depth, .001f)
+            val screenshot =
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            val dir = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+            File(dir, "spatial-auto.png").outputStream().use {
+                screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            screenshot.recycle()
+        }
+    }
+
+    @Test
+    fun spatialRepairRemovesSubjectAndPreservesBackground() {
+        val b = Bitmap.createBitmap(80, 100, Bitmap.Config.ARGB_8888)
+        b.eraseColor(Color.BLUE)
+        Canvas(b).drawRect(30f, 25f, 50f, 75f, Paint().apply { color = Color.RED })
+        val mask =
+            FloatArray(128 * 128) { i -> if (i % 128 in 48..80 && i / 128 in 30..97) 1f else 0f }
+        val (background, foreground) = com.az.animewallpaper.spatial.SpatialLayers.build(b, mask)
+        assertEquals(Color.BLUE, background.getPixel(0, 0))
+        assertTrue(Color.blue(background.getPixel(40, 50)) > 200)
+        assertTrue(Color.alpha(foreground.getPixel(40, 50)) > 240)
+        assertEquals(0, Color.alpha(foreground.getPixel(0, 0)))
+        b.recycle()
+        background.recycle()
+        foreground.recycle()
+    }
+
+    @Test
     fun imageProjectAndAppliedSnapshotSurviveDeletion() {
         val store = ProjectStore(context)
         val p = store.starter(0)
@@ -389,7 +459,7 @@ class DeviceTests {
             assertTrue(ready)
             scenario.onActivity { a ->
                 val buttons =
-                    listOf("Undo", "Redo", "Save", "Preview", "Rename", "Focus canvas").map {
+                    listOf("Undo", "Redo", "Save", "Preview", "Spatial", "Focus canvas").map {
                         find(a.window.decorView, it)!!
                     }
                 assertTrue(

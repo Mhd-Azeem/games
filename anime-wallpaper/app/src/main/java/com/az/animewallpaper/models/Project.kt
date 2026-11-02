@@ -43,6 +43,14 @@ data class Region(
     var vertices: MutableList<Pair<Float, Float>> = mutableListOf(),
 )
 
+data class SpatialSettings(
+    var enabled: Boolean = false,
+    var kind: String = "none",
+    var strength: Float = 0.7f,
+    var smoothing: Float = 0.7f,
+    var depth: FloatArray = FloatArray(MASK_SIZE * MASK_SIZE),
+)
+
 data class Project(
     val id: String = id(),
     var name: String = "Untitled wallpaper",
@@ -60,4 +68,5 @@ data class Project(
     var fps: Int = 30,
     var quality: Int = 64,
     var overlay: Float = 0.4f,
+    var spatial: SpatialSettings = SpatialSettings(),
 )
