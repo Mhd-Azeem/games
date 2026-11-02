@@ -337,7 +337,10 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                         dy = dy * (1 - w) + springs[i].y * w
                     }
                     if (p.spatial.enabled) {
-                        val depth = SpatialMotion.planeDepth(Masks.sample(spatialDepth, u, v))
+                        // A single photographic texture cannot support independent depth planes:
+                        // per-vertex depth offsets bend straight background lines and faces.
+                        // Apply a rigid camera transform until separately composited layers exist.
+                        val depth = SpatialMotion.planeDepth(.5f)
                         spatialMotion.transform(
                             .5f + (u + dx - .5f),
                             .5f + (v + dy - .5f),
