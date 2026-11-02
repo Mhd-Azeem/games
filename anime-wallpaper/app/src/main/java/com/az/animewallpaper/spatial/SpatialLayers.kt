@@ -89,8 +89,11 @@ object SpatialLayers {
         for (i in pixels.indices) {
             val x = i % w
             val y = i / w
-            if (expanded[min(lh - 1, y * lh / h) * lw + min(lw - 1, x * lw / w)])
-                pixels[i] = repairPixels[i]
+            // Expansion excludes subject colors from fill sampling only. Never paint that
+            // expanded rectangle onto visible background: it creates a broad blurred halo.
+            // Keep every original pixel outside the actual cutout, including fine line detail.
+            val coverage = Masks.sample(mask, x / max(1f, w - 1f), y / max(1f, h - 1f))
+            if (coverage > .03f) pixels[i] = repairPixels[i]
         }
         return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888) to
             Bitmap.createBitmap(foreground, w, h, Bitmap.Config.ARGB_8888)

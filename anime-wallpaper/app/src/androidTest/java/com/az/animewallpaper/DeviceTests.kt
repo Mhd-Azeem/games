@@ -85,6 +85,13 @@ class DeviceTests {
             FloatArray(128 * 128) { i -> if (i % 128 in 48..80 && i / 128 in 30..97) 1f else 0f }
         val (background, foreground) = com.az.animewallpaper.spatial.SpatialLayers.build(b, mask)
         assertEquals(Color.BLUE, background.getPixel(0, 0))
+        // A high-contrast background line inside the old dilation halo must stay exact.
+        val detail = Color.GREEN
+        b.setPixel(27, 50, detail)
+        val (detailedBackground, detailedForeground) = com.az.animewallpaper.spatial.SpatialLayers.build(b, mask)
+        assertEquals("Spatial damaged visible background beside the subject", detail, detailedBackground.getPixel(27, 50))
+        detailedBackground.recycle()
+        detailedForeground.recycle()
         assertTrue(Color.blue(background.getPixel(40, 50)) > 200)
         assertTrue(Color.alpha(foreground.getPixel(40, 50)) > 240)
         assertEquals(0, Color.alpha(foreground.getPixel(0, 0)))

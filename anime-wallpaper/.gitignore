@@ -1,9 +1,0 @@
-.gradle/
-**/build/
-local.properties
-*.jks
-*.keystore
-.kotlin/
-
-app/src/main/assets/spatial_subject.tflite
-app/src/main/assets/spatial.tmp
