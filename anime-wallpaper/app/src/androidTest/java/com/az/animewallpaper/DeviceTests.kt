@@ -219,7 +219,9 @@ class DeviceTests {
         var visible = false
         repeat(3) {
             if (!visible) {
-                val home = instrumentation.uiAutomation.takeScreenshot()
+                val captured = instrumentation.uiAutomation.takeScreenshot()
+                val home = captured?.copy(Bitmap.Config.ARGB_8888, false)
+                captured?.recycle()
                 if (home != null) {
                     val positions = listOf(.3f to .45f, .5f to .45f, .7f to .45f)
                     visible =
