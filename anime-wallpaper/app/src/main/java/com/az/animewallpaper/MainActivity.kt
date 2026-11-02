@@ -96,6 +96,8 @@ class MainActivity : Activity() {
             background = round()
             setPadding(dp(12), dp(4), dp(12), dp(4))
             minimumHeight = dp(46)
+            minWidth = dp(46)
+            minimumWidth = dp(46)
             setOnClickListener { action() }
         }
 
@@ -107,7 +109,12 @@ class MainActivity : Activity() {
     }
 
     private fun toolbar(parent: LinearLayout, items: List<Pair<String, () -> Unit>>) {
-        val scroll = HorizontalScrollView(this)
+        val scroll =
+            HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                isHorizontalFadingEdgeEnabled = true
+                setFadingEdgeLength(dp(12))
+            }
         val line = row()
         items.forEach { (name, action) ->
             line.addView(
@@ -127,11 +134,15 @@ class MainActivity : Activity() {
                 setPadding(dp(12), 0, dp(12), 0)
             }
         root.setOnApplyWindowInsetsListener { v, insets ->
-            val bars = insets.getInsets(WindowInsets.Type.systemBars())
-            v.setPadding(dp(12), bars.top, dp(12), bars.bottom)
+            val bars =
+                insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+            v.setPadding(dp(12) + bars.left, bars.top, dp(12) + bars.right, bars.bottom)
             insets
         }
         setContentView(root)
+        window.insetsController?.show(WindowInsets.Type.systemBars())
         root.requestApplyInsets()
         val top = row()
         if (back != null) top.addView(button("‹", back))
@@ -165,6 +176,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        window.setDecorFitsSystemWindows(false)
         store = ProjectStore(this)
         window.statusBarColor = bg
         window.navigationBarColor = bg
