@@ -5,6 +5,8 @@ import android.graphics.*
 import android.net.Uri
 import com.az.animewallpaper.models.*
 import com.az.animewallpaper.models.Region
+import com.az.animewallpaper.rendering.ImageFrame
+import com.az.animewallpaper.selection.Masks
 import java.io.*
 import java.util.Base64
 import java.util.zip.*
@@ -174,6 +176,16 @@ object Codec {
                     )
             }
         }
+        require(listOf(p.zoom, p.offsetX, p.offsetY, p.overlay).all { it.isFinite() }) {
+            "Invalid framing values"
+        }
+        require(p.points.all { it.x.isFinite() && it.y.isFinite() }) { "Invalid point coordinates" }
+        require(
+            p.points.map { it.id }.distinct().size == p.points.size &&
+                p.regions.map { it.id }.distinct().size == p.regions.size
+        ) {
+            "Duplicate identifiers"
+        }
         return p
     }
 }
@@ -192,7 +204,33 @@ class ProjectStore(val context: Context) {
         val tmp = File(dir, "project.tmp")
         tmp.writeText(Codec.encode(p))
         check(tmp.renameTo(File(dir, "project.json"))) { "Unable to save project" }
+        val source = decode(p.image, 256)
+        val thumb = Bitmap.createBitmap(160, 240, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(thumb)
+        canvas.drawColor(Color.rgb(21, 22, 25))
+        val frame = ImageFrame(160f, 240f, source.width.toFloat(), source.height.toFloat(), p)
+        val a = frame.screen(0f, 0f)
+        val b = frame.screen(1f, 0f)
+        val c = frame.screen(0f, 1f)
+        val matrix = Matrix()
+        matrix.setPolyToPoly(
+            floatArrayOf(0f, 0f, source.width.toFloat(), 0f, 0f, source.height.toFloat()),
+            0,
+            floatArrayOf(a.first, a.second, b.first, b.second, c.first, c.second),
+            0,
+            3,
+        )
+        canvas.drawBitmap(source, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
+        File(dir, "thumbnail.png").outputStream().use {
+            thumb.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        source.recycle()
+        thumb.recycle()
     }
+
+    fun thumbnail(p: Project): Bitmap =
+        BitmapFactory.decodeFile(File(directory(p.id), "thumbnail.png").absolutePath)
+            ?: decode(p.image, 160)
 
     fun setActive(p: Project) {
         val dir = File(context.filesDir, "active-wallpaper").apply { mkdirs() }
@@ -373,6 +411,19 @@ class ProjectStore(val context: Context) {
                 )
             )
         }
+        val region = Region(name = if (index == 0) "Hair sway" else "Gentle selected motion")
+        if (index == 0) {
+            Masks.polygon(
+                region.mask,
+                listOf(.28f to .26f, .42f to .24f, .39f to .5f, .26f to .7f, .17f to .71f),
+                1f,
+            )
+            p.points[0].x = .31f
+            p.points[0].y = .51f
+            p.points[0].physics.radius = .3f
+        } else Masks.shape(region.mask, .15f, .15f, .85f, .7f, true, 1f)
+        p.regions.add(region)
+        p.points[0].region = region.id
         save(p)
         return p
     }

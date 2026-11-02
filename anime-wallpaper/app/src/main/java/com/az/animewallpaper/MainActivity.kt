@@ -281,7 +281,7 @@ class MainActivity : Activity() {
             )
             card.addView(line)
             runIO {
-                val b = store.decode(p.image, 160)
+                val b = store.thumbnail(p)
                 handler.post { image.setImageBitmap(b) }
             }
             toolbar(
@@ -1180,16 +1180,7 @@ class MainActivity : Activity() {
                         renderer?.inputX = 0f
                         renderer?.inputY = 0f
                     },
-                "Full screen" to
-                    {
-                        info.visibility =
-                            if (info.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                        window.insetsController?.let {
-                            if (info.visibility == View.GONE)
-                                it.hide(WindowInsets.Type.systemBars())
-                            else it.show(WindowInsets.Type.systemBars())
-                        }
-                    },
+                "Full screen" to { fullPreview() },
                 "Diagnostics" to
                     {
                         renderer?.let { r ->
@@ -1270,6 +1261,31 @@ class MainActivity : Activity() {
             }
         }
         addButton(parent, "Apply live wallpaper") { applyWallpaper(p) }
+    }
+
+    private fun fullPreview() {
+        val parent = page("Preview")
+        parent.getChildAt(0).visibility = View.GONE
+        parent.setOnApplyWindowInsetsListener { v, insets ->
+            v.setPadding(0, 0, 0, 0)
+            insets
+        }
+        parent.setPadding(0, 0, 0, 0)
+        window.insetsController?.hide(WindowInsets.Type.systemBars())
+        canvas(parent, false)
+        val exit =
+            button("Exit full screen") {
+                window.insetsController?.show(WindowInsets.Type.systemBars())
+                previewScreen()
+            }
+        val frame = parent.getChildAt(1) as FrameLayout
+        frame.addView(
+            exit,
+            FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(24)
+                marginEnd = dp(12)
+            },
+        )
     }
 
     private fun applyWallpaper(p: Project) {
