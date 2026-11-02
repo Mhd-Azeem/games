@@ -1248,8 +1248,8 @@ class MainActivity : Activity() {
                             if (renderer !== r) return
                             val t = (SystemClock.uptimeMillis() - start) / 1000f
                             if (t < 1.5f) {
-                                r.inputX = sin(t * 34) * force
-                                r.inputY = cos(t * 25) * force
+                                r.inputX = sin(t * 14) * force
+                                r.inputY = cos(t * 11) * force
                                 handler.postDelayed(this, 16)
                             } else {
                                 r.inputX = 0f

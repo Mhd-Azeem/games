@@ -28,8 +28,8 @@ class Spring {
         val delay = ((p.delay + global.delay) / 1000f / time).toInt().coerceIn(0, 127)
         val idx = (cursor - delay + 128) % 128
         cursor = (cursor + 1) % 128
-        val force = p.sensitivity * global.sensitivity * 5f
         val k = 12f + p.stiffness * 2f * (global.stiffness / 40f).coerceAtLeast(.05f)
+        val force = p.sensitivity * global.sensitivity * k
         val damping = 1f + p.damping * 0.32f * (global.damping / 55f)
         val limit =
             (p.maxDisplacement * (global.maxDisplacement / .045f) * global.intensity * p.intensity)

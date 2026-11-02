@@ -9,6 +9,14 @@ import org.junit.Test
 
 class MotionTests {
     @Test
+    fun naturalTiltProducesVisibleLocalizedTravel() {
+        val spring = Spring()
+        repeat(300) { spring.step(1f, 0f, .016f, Physics(), Physics(intensity = 1f)) }
+        assertTrue("Natural motion should use the configured travel budget", spring.x > .02f)
+        assertTrue(spring.x <= .045f * .65f + .0001f)
+    }
+
+    @Test
     fun pointsHaveUniqueIdentifiers() {
         assertNotEquals(MotionPoint().id, MotionPoint().id)
     }
