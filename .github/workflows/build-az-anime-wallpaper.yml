@@ -1,12 +1,17 @@
 name: Build AZ Anime Wallpaper
 on:
   push:
-    branches: [feature/az-anime-motion-wallpaper]
-    paths: ['anime-wallpaper/**', '.github/workflows/build-az-anime-wallpaper.yml']
+    branches:
+      - feature/az-anime-motion-wallpaper
+    paths:
+      - 'anime-wallpaper/**'
+      - '.github/workflows/build-az-anime-wallpaper.yml'
   workflow_dispatch:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: anime-wallpaper
@@ -16,16 +21,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install SDK
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
+      - name: Verify and install Android SDK
         run: |
-          gradle --version || true
-          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
-          /tmp/gradle-8.9/bin/gradle --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME" || { echo "Android SDK missing on runner"; exit 1; }
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Gradle 8.9
+        run: |
+          curl -fLsS --retry 3 https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle-8.9.zip
+          unzip -q /tmp/gradle-8.9.zip -d /tmp
+      - name: Build debug APK
+        run: /tmp/gradle-8.9/bin/gradle --no-daemon --stacktrace assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: AZAnimeWallpaper-debug-apk
           path: anime-wallpaper/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
