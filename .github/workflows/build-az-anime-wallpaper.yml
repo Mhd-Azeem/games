@@ -98,7 +98,7 @@ jobs:
           disable-animations: true
           script: |
             cd anime-wallpaper && ./gradlew --no-daemon connectedDebugAndroidTest
-            adb pull /sdcard/Android/data/com.az.animewallpaper/files/ anime-wallpaper-screenshots || true
+            adb pull /sdcard/Android/data/com.az.animewallpaper.dev/files/ anime-wallpaper-screenshots || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

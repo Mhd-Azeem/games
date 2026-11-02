@@ -5,6 +5,7 @@ import android.os.*
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import com.az.animewallpaper.rendering.MotionRenderer
+import com.az.animewallpaper.rendering.WallpaperEgl
 import com.az.animewallpaper.sensors.MotionSensors
 import com.az.animewallpaper.storage.ProjectStore
 
@@ -51,8 +52,7 @@ class MotionWallpaperService : WallpaperService() {
             super.onSurfaceCreated(holder)
             handler.post {
                 try {
-                    display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-                    check(EGL14.eglInitialize(display, IntArray(2), 0, IntArray(2), 0))
+                    display = WallpaperEgl.acquire()
                     val configs = arrayOfNulls<EGLConfig>(1)
                     val n = IntArray(1)
                     check(
@@ -155,7 +155,7 @@ class MotionWallpaperService : WallpaperService() {
                 )
                 if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
                 if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, eglContext)
-                EGL14.eglTerminate(display)
+                WallpaperEgl.release(display)
             }
             display = EGL14.EGL_NO_DISPLAY
             surface = EGL14.EGL_NO_SURFACE
