@@ -13,6 +13,7 @@ class MotionWallpaperService: WallpaperService() {
   private val sensorManager=getSystemService(SENSOR_SERVICE) as SensorManager
   private val sensor=sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+  private val prefs=getSharedPreferences("motion",MODE_PRIVATE)
   private val gravity=FloatArray(3)
   private var visible=false
   private var hair=0f; private var hairVelocity=0f
@@ -31,8 +32,11 @@ class MotionWallpaperService: WallpaperService() {
    for(i in 0..2)gravity[i]=gravity[i]*0.85f+event.values[i]*0.15f
    val dx=(event.values[0]-gravity[0]).coerceIn(-12f,12f)
    val dy=(event.values[1]-gravity[1]).coerceIn(-12f,12f)
-   hairVelocity+=(dx*0.09f+dy*0.015f)
-   clothingVelocity+=(dy*0.035f+dx*0.01f)
+   val sensitivity=prefs.getInt("sensitivity",55)/55f
+   val hairScale=prefs.getInt("hair",65)/65f
+   val clothingScale=prefs.getInt("clothing",35)/35f
+   hairVelocity+=(dx*0.09f+dy*0.015f)*sensitivity*hairScale
+   clothingVelocity+=(dy*0.035f+dx*0.01f)*sensitivity*clothingScale
   }
   private fun update() {
    hairVelocity+=(-hair*0.11f-hairVelocity*0.20f)
