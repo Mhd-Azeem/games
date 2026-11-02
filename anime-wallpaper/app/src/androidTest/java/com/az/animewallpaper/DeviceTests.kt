@@ -158,6 +158,65 @@ class DeviceTests {
     }
 
     @Test
+    fun wallpaperAppliesThroughAndroidPicker() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val store = ProjectStore(context)
+        val project = store.starter(0)
+        store.setActive(project)
+        context.startActivity(
+            android.content
+                .Intent(android.app.WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+                .putExtra(
+                    android.app.WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    android.content.ComponentName(context, MotionWallpaperService::class.java),
+                )
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        fun click(text: String): Boolean {
+            val root = instrumentation.uiAutomation.rootInActiveWindow ?: return false
+            val nodes = root.findAccessibilityNodeInfosByText(text)
+            val target =
+                nodes.firstOrNull { it.text?.toString()?.equals(text, true) == true }
+                    ?: return false
+            var node: android.view.accessibility.AccessibilityNodeInfo? = target
+            while (node != null) {
+                if (node.isClickable)
+                    return node.performAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK
+                    )
+                node = node.parent
+            }
+            return false
+        }
+        var clicked = false
+        repeat(60) {
+            if (!clicked) {
+                Thread.sleep(200)
+                clicked = click("Set wallpaper")
+            }
+        }
+        val shot = instrumentation.uiAutomation.takeScreenshot()
+        if (shot != null) {
+            File(context.getExternalFilesDir(null), "native-picker.png").outputStream().use {
+                shot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            shot.recycle()
+        }
+        assertTrue("Native wallpaper confirmation button was not found", clicked)
+        val manager = android.app.WallpaperManager.getInstance(context)
+        var applied = false
+        repeat(60) {
+            if (!applied) {
+                click("Home screen")
+                Thread.sleep(200)
+                applied = manager.wallpaperInfo?.packageName == context.packageName
+            }
+        }
+        assertTrue("Android did not activate the live wallpaper service", applied)
+        store.delete(project)
+    }
+
+    @Test
     fun wallpaperServiceIsRegistered() {
         val info =
             context.packageManager.getServiceInfo(
