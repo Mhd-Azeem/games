@@ -34,7 +34,7 @@ class MainActivity : Activity() {
         window.navigationBarColor = bg
         val density = resources.displayMetrics.density
         val prefs = getSharedPreferences("motion", MODE_PRIVATE)
-        val scroll = ScrollView(this).apply { setBackgroundColor(bg); fillViewport = true }
+        val scroll = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((22*density).toInt(), (32*density).toInt(), (22*density).toInt(), (28*density).toInt())
