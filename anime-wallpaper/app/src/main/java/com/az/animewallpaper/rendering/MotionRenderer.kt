@@ -337,7 +337,7 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                         dy = dy * (1 - w) + springs[i].y * w
                     }
                     if (p.spatial.enabled) {
-                        val depth = Masks.sample(spatialDepth, u, v) * .55f - .15f
+                        val depth = SpatialMotion.planeDepth(Masks.sample(spatialDepth, u, v))
                         spatialMotion.transform(
                             .5f + (u + dx - .5f),
                             .5f + (v + dy - .5f),

@@ -9,6 +9,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SpatialTests {
+    @Test fun backgroundMovesOppositeSubjectInBothModes() {
+        for(gain in listOf(1.8f,3.2f)) {
+            val motion=SpatialMotion()
+            repeat(200) { motion.step(.6f,.5f,.03f,.7f) }
+            val subject=FloatArray(2);val background=FloatArray(2)
+            motion.transform(.5f,.5f,SpatialMotion.planeDepth(1f),1.5f,.7f*gain,subject)
+            motion.transform(.5f,.5f,SpatialMotion.planeDepth(0f),1.5f,.7f*gain,background)
+            assertTrue(subject[0]>.5f && background[0]<.5f)
+            assertTrue(subject[1]<.5f && background[1]>.5f)
+            assertTrue(abs(background[0]-.5f)<abs(subject[0]-.5f))
+            motion.reset()
+            motion.transform(.5f,.5f,SpatialMotion.planeDepth(0f),1.5f,.7f*gain,background)
+            assertEquals(.5f,background[0],.00001f)
+        }
+    }
+
     @Test fun threeTapCyclePreservesStrengthAndSavedMode() {
         val p=Project();p.spatial.kind="subject";p.spatial.strength=1.1f
         p.spatial.cycle();assertTrue(p.spatial.enabled);assertFalse(p.spatial.strong)
