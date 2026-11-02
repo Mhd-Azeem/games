@@ -51,7 +51,11 @@ class MainActivity : Activity() {
         object : Runnable {
             override fun run() {
                 gl?.requestRender()
-                if (gl != null) handler.postDelayed(this, 1000L / (project?.fps ?: 30))
+                if (gl != null)
+                    handler.postDelayed(
+                        this,
+                        if (renderer?.moving == true) 1000L / (project?.fps ?: 30) else 150L,
+                    )
             }
         }
     private val refresh = Runnable {
@@ -165,7 +169,7 @@ class MainActivity : Activity() {
         window.statusBarColor = bg
         window.navigationBarColor = bg
         val restore = File(cacheDir, "editor-session.json")
-        if (state != null && restore.isFile) {
+        if (state?.getBoolean("editorActive") == true && restore.isFile) {
             try {
                 project = Codec.decode(restore.readText())
                 editor()
@@ -176,6 +180,7 @@ class MainActivity : Activity() {
     }
 
     override fun onSaveInstanceState(out: Bundle) {
+        out.putBoolean("editorActive", project != null)
         project?.let { File(cacheDir, "editor-session.json").writeText(Codec.encode(it)) }
         super.onSaveInstanceState(out)
     }
@@ -991,6 +996,7 @@ class MainActivity : Activity() {
                                 name = r.name + " copy",
                                 physics = r.physics.copy(),
                                 mask = r.mask.copyOf(),
+                                vertices = r.vertices.toMutableList(),
                             )
                         )
                         changed()

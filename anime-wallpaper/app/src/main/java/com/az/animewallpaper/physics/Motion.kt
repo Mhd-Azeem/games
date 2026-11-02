@@ -55,7 +55,7 @@ object Influence {
         if (!point.enabled) return 0f
         val d = hypot(x - point.x, y - point.y) / point.physics.radius.coerceAtLeast(0.001f)
         val t = (1 - d).coerceIn(0f, 1f)
-        return t * t * (3 - 2 * t)
+        return (t * t * (3 - 2 * t)).pow(.5f + point.physics.feather * 2f)
     }
 }
 

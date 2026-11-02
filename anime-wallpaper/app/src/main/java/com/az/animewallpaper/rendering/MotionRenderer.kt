@@ -60,6 +60,9 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     @Volatile var renderMs = 0f
     private var p = Project()
     private var path = ""
+    private var imageStamp = 0L
+    @Volatile var moving = false
+    private var springCache = emptyMap<String, Spring>()
     private var imageW = 720f
     private var imageH = 1280f
     private var program = 0
@@ -140,13 +143,15 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
 
     private fun configure(next: Project) {
         p = next
-        if (path != p.image) {
+        val stamp = java.io.File(p.image).lastModified() xor p.id.hashCode().toLong()
+        if (path != p.image || imageStamp != stamp) {
             val b = ProjectStore(context).decode(p.image, 2048)
             imageW = b.width.toFloat()
             imageH = b.height.toFloat()
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, b, 0)
             b.recycle()
             path = p.image
+            imageStamp = stamp
         }
         grid = p.quality
         val count = (grid + 1) * (grid + 1)
@@ -172,22 +177,27 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         }
         indices.position(0)
         val configs = mutableListOf<Physics>()
+        val keys = mutableListOf<String>()
         val fields = mutableListOf<FloatArray>()
         val masks =
             p.regions.associate {
-                it.id to Masks.feather(it.mask, (it.physics.feather * 10).toInt())
+                it.id to
+                    Masks.feather(
+                        it.mask,
+                        (it.physics.feather * (p.global.feather / .4f) * 10).toInt(),
+                    )
             }
+        val fixedPoints = p.points.filter { it.fixed && it.enabled }
         val fixed =
             FloatArray(count) { i ->
                 val x = (i % (grid + 1)).toFloat() / grid
                 val y = (i / (grid + 1)).toFloat() / grid
                 var a = 1f
-                p.points
-                    .filter { it.fixed && it.enabled }
-                    .forEach { a *= 1 - Influence.radial(x, y, it) }
+                fixedPoints.forEach { a *= 1 - Influence.radial(x, y, it) }
                 a
             }
-        fun field(config: Physics, weight: (Float, Float) -> Float) {
+        fun field(key: String, config: Physics, weight: (Float, Float) -> Float) {
+            keys.add(key)
             configs.add(config)
             fields.add(
                 FloatArray(count) { i ->
@@ -206,9 +216,21 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                 )
             val config =
                 point.physics.copy(
-                    intensity = point.physics.intensity * (r?.physics?.intensity ?: 1f)
+                    intensity = point.physics.intensity * (r?.physics?.intensity ?: 1f),
+                    sensitivity = point.physics.sensitivity * (r?.physics?.sensitivity ?: 1f),
+                    stiffness = point.physics.stiffness * ((r?.physics?.stiffness ?: 40f) / 40f),
+                    damping = point.physics.damping * ((r?.physics?.damping ?: 55f) / 55f),
+                    maxDisplacement =
+                        point.physics.maxDisplacement *
+                            ((r?.physics?.maxDisplacement ?: .045f) / .045f),
+                    horizontal = point.physics.horizontal * (r?.physics?.horizontal ?: 1f),
+                    vertical = point.physics.vertical * (r?.physics?.vertical ?: 1f),
+                    delay = (point.physics.delay + (r?.physics?.delay ?: 0)).coerceAtMost(500),
+                    direction =
+                        if (point.physics.direction == 0) r?.physics?.direction ?: 0
+                        else point.physics.direction,
                 )
-            field(config) { x, y ->
+            field(point.id, config) { x, y ->
                 Influence.radial(x, y, scaled) *
                     (r?.let { Masks.sample(masks.getValue(it.id), x, y) } ?: 1f)
             }
@@ -218,7 +240,7 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
             .forEach { r ->
                 val assigned = p.points.filter { it.region == r.id && it.enabled && !it.fixed }
                 if (assigned.isEmpty())
-                    field(r.physics) { x, y -> Masks.sample(masks.getValue(r.id), x, y) }
+                    field(r.id, r.physics) { x, y -> Masks.sample(masks.getValue(r.id), x, y) }
                 else assigned.forEach { pointField(it, r) }
             }
         p.points
@@ -227,7 +249,8 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         synchronized(paintLock) {
             params = configs
             weights = fields
-            springs = configs.map { Spring() }
+            springs = keys.map { springCache[it] ?: Spring() }
+            springCache = keys.zip(springs).toMap()
         }
     }
 
@@ -254,7 +277,7 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                 val k = y * (grid + 1) + x
                 var dx = 0f
                 var dy = 0f
-                var sum = 0f
+
                 for (i in springs.indices) {
                     val w = weights[i][k]
                     dx = dx * (1 - w) + springs[i].x * w
@@ -265,6 +288,11 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                 vertices.put(1 - position[1] / height * 2)
             }
         }
+        moving =
+            !paused &&
+                (abs(inputX) > .03f ||
+                    abs(inputY) > .03f ||
+                    springs.any { abs(it.x) + abs(it.y) > .0001f })
         vertices.position(0)
         GLES20.glUseProgram(program)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)

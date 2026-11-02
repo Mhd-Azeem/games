@@ -38,7 +38,7 @@ class MotionWallpaperService : WallpaperService() {
                         android.util.Log.e("AZWallpaper", "Render failed", e)
                         ready = false
                     }
-                    if (ready) handler.postDelayed(this, 1000L / fps)
+                    if (ready) handler.postDelayed(this, if (renderer.moving) 1000L / fps else 150L)
                 }
             }
 
