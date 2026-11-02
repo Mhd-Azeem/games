@@ -58,6 +58,8 @@ class DeviceTests {
                 assertTrue(p.spatial.kind in listOf("subject", "scene"))
                 assertTrue(p.spatial.depth.all { it.isFinite() && it in 0f..1f })
                 find(a.window.decorView, "Spatial on")!!.performClick()
+                assertTrue(overlay(a.window.decorView)!!.project.spatial.strong)
+                find(a.window.decorView, "Spatial strong")!!.performClick()
                 assertFalse(overlay(a.window.decorView)!!.project.spatial.enabled)
                 find(a.window.decorView, "Spatial")!!.performClick()
                 assertTrue(overlay(a.window.decorView)!!.project.spatial.enabled)

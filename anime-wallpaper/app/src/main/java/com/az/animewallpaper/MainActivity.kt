@@ -572,7 +572,7 @@ class MainActivity : Activity() {
                         preview = true
                         previewScreen()
                     },
-                (if (p.spatial.enabled) "Spatial on" else "Spatial") to { toggleSpatial() },
+                (if (!p.spatial.enabled) "Spatial" else if(p.spatial.strong) "Spatial strong" else "Spatial on") to { toggleSpatial() },
                 "Focus canvas" to { setEditorFocus(!editorFocused) },
             ),
         )
@@ -678,7 +678,7 @@ class MainActivity : Activity() {
         val p = project ?: return
         if (p.spatial.kind != "none") {
             snapshot()
-            p.spatial.enabled = !p.spatial.enabled
+            p.spatial.cycle()
             changed()
             saveQuiet()
             editor()
@@ -750,7 +750,7 @@ class MainActivity : Activity() {
                     muted,
                 )
             )
-            addButton(box, if (p.spatial.enabled) "Disable Spatial" else "Enable Spatial") {
+            addButton(box, if (!p.spatial.enabled) "Enable Spatial" else if(p.spatial.strong) "Turn Spatial off" else "Stronger Spatial") {
                 dismissSheet()
                 toggleSpatial()
             }
