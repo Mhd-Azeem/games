@@ -75,7 +75,6 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private var imageW = 720f
     private var imageH = 1280f
     private var program = 0
-    private var spatialDepth = FloatArray(MASK_SIZE * MASK_SIZE)
     private val spatialMotion = SpatialMotion()
     private var texture = 0
     private var width = 1
@@ -168,8 +167,6 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private fun configure(next: Project) {
         p = next
         val stamp = java.io.File(p.image).lastModified() xor p.id.hashCode().toLong()
-        // Depth smoothing changes geometry only, never the source image pixels.
-        spatialDepth = Masks.feather(p.spatial.depth, 8)
         if (path != p.image || imageStamp != stamp) {
             val bitmap = ProjectStore(context).decode(p.image, 2048)
             imageW = bitmap.width.toFloat()
@@ -337,10 +334,10 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                         dy = dy * (1 - w) + springs[i].y * w
                     }
                     if (p.spatial.enabled) {
-                        // A single photographic texture cannot support independent depth planes:
-                        // per-vertex depth offsets bend straight background lines and faces.
-                        // Apply a rigid camera transform until separately composited layers exist.
-                        val depth = SpatialMotion.planeDepth(.5f)
+                        // A uniform plane produces a projective transform: straight lines stay
+                        // straight. Segmentation weights are not geometric depth and must
+                        // not stretch the photograph around a person silhouette.
+                        val depth = SpatialMotion.PHOTO_PLANE_DEPTH
                         spatialMotion.transform(
                             .5f + (u + dx - .5f),
                             .5f + (v + dy - .5f),

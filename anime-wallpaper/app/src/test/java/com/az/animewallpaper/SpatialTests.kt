@@ -9,6 +9,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SpatialTests {
+    @Test fun photoPerspectiveKeepsGridLinesStraight() {
+        val motion=SpatialMotion()
+        repeat(200) { motion.step(1f,-.8f,.03f,.7f) }
+        for (gain in listOf(1.8f,3.2f)) {
+            val a=FloatArray(2);val b=FloatArray(2);val c=FloatArray(2)
+            for (line in listOf(.15f,.5f,.85f)) {
+                motion.transform(line,0f,SpatialMotion.PHOTO_PLANE_DEPTH,1.5f,1.5f*gain,a)
+                motion.transform(line,.5f,SpatialMotion.PHOTO_PLANE_DEPTH,1.5f,1.5f*gain,b)
+                motion.transform(line,1f,SpatialMotion.PHOTO_PLANE_DEPTH,1.5f,1.5f*gain,c)
+                val cross=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])
+                assertEquals("Spatial bent a straight background line",0f,cross,.00001f)
+            }
+        }
+    }
+
     @Test fun backgroundMovesOppositeSubjectInBothModes() {
         for(gain in listOf(1.8f,3.2f)) {
             val motion=SpatialMotion()

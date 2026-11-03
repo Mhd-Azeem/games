@@ -14,8 +14,8 @@ android {
         applicationId = "com.az.animewallpaper"
         minSdk = 30
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.3-dev"
+        versionCode = 11
+        versionName = "0.6.4-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

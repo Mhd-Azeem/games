@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Car body -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M20,65 L88,65 L88,52 L20,52 Z"/>
+    <!-- Cabin -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M30,52 L35,40 L73,40 L78,52 Z"
+        android:fillAlpha="0.7"/>
+    <!-- Front bumper -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M80,65 L92,65 L90,58 L80,58 Z"/>
+    <!-- Rear bumper -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M28,65 L16,65 L18,58 L28,58 Z"/>
+    <!-- Wheels -->
+    <path
+        android:fillColor="#111133"
+        android:pathData="M28,68 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"/>
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M28,68 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0"/>
+    <path
+        android:fillColor="#111133"
+        android:pathData="M80,68 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"/>
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M80,68 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0"/>
+    <!-- Headlight glow -->
+    <path
+        android:fillColor="#FFFFCC"
+        android:fillAlpha="0.9"
+        android:pathData="M86,56 L92,54 L93,60 L87,62 Z"/>
+    <!-- Neon underglow -->
+    <path
+        android:strokeColor="#FF00FF"
+        android:strokeWidth="2"
+        android:pathData="M20,67 L88,67"
+        android:fillColor="#00000000"/>
+</vector>

@@ -5,6 +5,7 @@ import kotlin.math.*
 /** Bounded perspective camera; the resting transform is exactly the input position. */
 class SpatialMotion {
     companion object {
+        const val PHOTO_PLANE_DEPTH = .4f
         // Positive subject depth and negative background depth orbit in opposite directions.
         fun planeDepth(weight: Float): Float = weight.coerceIn(0f, 1f) * .64f - .24f
     }
