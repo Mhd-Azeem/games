@@ -97,6 +97,11 @@ class DeviceTests {
         assertTrue(Color.blue(background.getPixel(40, 50)) > 200)
         assertTrue(Color.alpha(foreground.getPixel(40, 50)) > 240)
         assertEquals(0, Color.alpha(foreground.getPixel(0, 0)))
+        // Dark antialiased fringe just beyond the coarse mask must not survive in backing.
+        b.setPixel(29, 50, Color.BLACK)
+        val (cleaned, cutout) = com.az.animewallpaper.spatial.SpatialLayers.build(b, mask)
+        assertNotEquals("Original subject fringe remained behind the moving cutout", Color.BLACK, cleaned.getPixel(29, 50))
+        cleaned.recycle(); cutout.recycle()
         b.recycle()
         background.recycle()
         foreground.recycle()

@@ -107,10 +107,11 @@ object SpatialLayers {
         for (i in pixels.indices) {
             val x = i % w
             val y = i / w
-            // Expansion excludes subject colors from fill sampling only. Never paint that
-            // expanded rectangle onto visible background: it creates a broad blurred halo.
-            // Keep every original pixel outside the actual cutout, including fine line detail.
-            if (coverage[i] > .03f) pixels[i] = repairPixels[i]
+            // Foreground refinement can contract a mask. Removing only refined coverage
+            // leaves the original hair/shoulder fringe behind and produces a second outline.
+            // Remove the coarse silhouette plus a narrow 2% guard, not the old wide halo.
+            val cleanup = expanded[min(lh - 1, y * lh / h) * lw + min(lw - 1, x * lw / w)]
+            if (cleanup || coverage[i] > .03f) pixels[i] = repairPixels[i]
         }
         return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888) to
             Bitmap.createBitmap(foreground, w, h, Bitmap.Config.ARGB_8888)
