@@ -721,8 +721,8 @@ class MainActivity : Activity() {
                             saveQuiet()
                             editor()
                             message(
-                                if (it.kind == "subject") "Spatial on • rigid photo perspective"
-                                else "Spatial on • rigid photo perspective"
+                                if (it.kind == "subject") "Spatial on • layered subject depth"
+                                else "Spatial on • layered subject depth"
                             )
                         }
                         .onFailure {
@@ -742,7 +742,7 @@ class MainActivity : Activity() {
             box.addView(
                 text(
                     when (p.spatial.kind) {
-                        "subject" -> "Rigid photo perspective • no subject or background warping"
+                        "subject" -> "Layered subject depth • small reveals use approximate background repair"
                         "scene" -> "Estimated scene depth • no clear subject detected"
                         else -> "Tap Spatial to analyze the photo automatically"
                     },

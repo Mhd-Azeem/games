@@ -62,3 +62,6 @@ Model: [Google MediaPipe DeepLab-v3 float32, version 1](https://ai.google.dev/ed
 
 ### Sharp Spatial (0.6)
 Spatial now uses the original photo as a single texture on a continuous depth mesh. Background inpainting and foreground compositing are no longer used, including for previously saved subject analyses. Only the depth map is smoothed; image pixels are never blurred or filled. Movement is capped to reduce stretched boundaries. This is conservative estimated 2.5D motion, not full 3D reconstruction or an exact iPhone equivalent. Online enhancement is not configured; no photos are uploaded.
+
+### Layered depth 0.7
+Detected subjects use two rigid photographic planes with restrained opposite motion. Color-aware mask upsampling improves boundary alignment without filtering the image. Background repair replaces only pixels under the subject. At rest, the original image is composited back exactly; a short transition reveals the layered rendering during tilt. Unrecognized scenes retain rigid perspective. Existing saved subject analyses work; Tools → Spatial settings → Analyze again refreshes segmentation. This is estimated 2.5D, with approximate hidden-background reconstruction; fine hair, reflections and large foreground occlusions can still show artifacts. No online service or photo uploads are enabled.

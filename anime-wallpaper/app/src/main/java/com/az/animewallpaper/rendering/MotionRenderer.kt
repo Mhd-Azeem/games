@@ -77,6 +77,10 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private var program = 0
     private val spatialMotion = SpatialMotion()
     private var texture = 0
+    private var foregroundTexture = 0
+    private var originalTexture = 0
+    private var layerStamp = 0
+    private var layered = false
     private var width = 1
     private var height = 1
     private var last = 0L
@@ -116,7 +120,7 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         val fs =
             shader(
                 GLES20.GL_FRAGMENT_SHADER,
-                "precision mediump float;varying vec2 vUv;uniform sampler2D uImage;void main(){gl_FragColor=texture2D(uImage,vUv);}",
+                "precision mediump float;varying vec2 vUv;uniform sampler2D uImage;uniform float uOpacity;void main(){gl_FragColor=texture2D(uImage,vUv)*uOpacity;}",
             )
         program = GLES20.glCreateProgram()
         GLES20.glAttachShader(program, vs)
@@ -127,9 +131,11 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
         val ok = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, ok, 0)
         check(ok[0] != 0) { GLES20.glGetProgramInfoLog(program) }
-        val ids = IntArray(1)
-        GLES20.glGenTextures(1, ids, 0)
+        val ids = IntArray(3)
+        GLES20.glGenTextures(3, ids, 0)
         texture = ids[0]
+        foregroundTexture = ids[1]
+        originalTexture = ids[2]
         for (id in ids) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
             GLES20.glTexParameteri(
@@ -167,12 +173,26 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
     private fun configure(next: Project) {
         p = next
         val stamp = java.io.File(p.image).lastModified() xor p.id.hashCode().toLong()
-        if (path != p.image || imageStamp != stamp) {
-            val bitmap = ProjectStore(context).decode(p.image, 2048)
+        layered = p.spatial.enabled && p.spatial.kind == "subject"
+        val signature=if(layered) p.spatial.depth.contentHashCode() else 0
+        if (path != p.image || imageStamp != stamp || signature != layerStamp) {
+            val bitmap = ProjectStore(context).decode(p.image, 1600)
             imageW = bitmap.width.toFloat()
             imageH = bitmap.height.toFloat()
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, originalTexture)
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            if(layered) {
+                val (background,foreground)=SpatialLayers.build(bitmap,p.spatial.depth)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,texture)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,background,0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,foregroundTexture)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,foreground,0)
+                background.recycle();foreground.recycle()
+            } else {
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,texture)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0)
+            }
+            layerStamp=signature
             bitmap.recycle()
             path = p.image
             imageStamp = stamp
@@ -320,7 +340,8 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                     )
                 }
             }
-            run {
+            val reveal=((abs(spatialMotion.x)+abs(spatialMotion.y))/.15f).coerceIn(0f,1f)
+            for(layer in 0 until if(layered) 3 else 1) {
                 vertices.position(0)
                 for (y in 0..grid) for (x in 0..grid) {
                     val k = y * (grid + 1) + x
@@ -334,16 +355,15 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                         dy = dy * (1 - w) + springs[i].y * w
                     }
                     if (p.spatial.enabled) {
-                        // A uniform plane produces a projective transform: straight lines stay
-                        // straight. Segmentation weights are not geometric depth and must
-                        // not stretch the photograph around a person silhouette.
-                        val depth = SpatialMotion.PHOTO_PLANE_DEPTH
+                        // Each layer is a rigid plane, keeping faces and background lines straight.
+                        // Opposite separation is restrained to avoid exposing large invented areas.
+                        val depth = if(layered && layer<2) { if(layer==0) -.035f else .07f } else if(layered) .07f else SpatialMotion.PHOTO_PLANE_DEPTH
                         spatialMotion.transform(
                             .5f + (u + dx - .5f),
                             .5f + (v + dy - .5f),
                             depth,
                             imageH / imageW,
-                            p.spatial.strength.coerceIn(0f, 1.5f) * p.spatial.motionGain,
+                            p.spatial.strength.coerceIn(0f, 1.5f) * (if(layered) min(p.spatial.motionGain,2.4f) else p.spatial.motionGain),
                             position,
                         )
                         frame.writeScreen(position[0], position[1], position)
@@ -352,7 +372,12 @@ class MotionRenderer(val context: Context) : GLSurfaceView.Renderer {
                     vertices.put(1 - position[1] / height * 2)
                 }
                 vertices.position(0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+                if(layered && layer>0) {
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    GLES20.glBlendFunc(GLES20.GL_ONE,GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                }
+                GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"uOpacity"),if(layered && layer==2) 1f-reveal else 1f)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,if(!layered || layer==0) texture else if(layer==1) foregroundTexture else originalTexture)
                 GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, vertices)
                 GLES20.glDrawElements(
                     GLES20.GL_TRIANGLES,
