@@ -504,6 +504,7 @@ class MainActivity : Activity() {
         dirty = false
         preview = false
         editor()
+        if(p.spatial.enabled && p.spatial.analysisVersion<2) handler.post { if(project?.id==p.id) analyzeSpatial() }
     }
 
     private fun snapshot() {
@@ -676,6 +677,7 @@ class MainActivity : Activity() {
 
     private fun toggleSpatial() {
         val p = project ?: return
+        if(p.spatial.kind!="none" && p.spatial.analysisVersion<2) { analyzeSpatial();return }
         if (p.spatial.kind != "none") {
             snapshot()
             p.spatial.cycle()
@@ -716,6 +718,9 @@ class MainActivity : Activity() {
                     result
                         .onSuccess {
                             snapshot()
+                            it.strength=p.spatial.strength
+                            it.smoothing=p.spatial.smoothing
+                            it.strong=p.spatial.strong
                             p.spatial = it
                             changed()
                             saveQuiet()

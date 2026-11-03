@@ -9,6 +9,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SpatialTests {
+    @Test fun fillSmallMaskHolesRetainsOpenBackgroundAndLargeGaps() {
+        val size=100;val mask=BooleanArray(size*size) { i -> i%size in 10..90 && i/size in 10..90 }
+        mask[50*size+50]=false
+        for(y in 30..45) for(x in 30..45)mask[y*size+x]=false
+        val result=com.az.animewallpaper.spatial.MaskCleanup.fillSmallHoles(mask,size)
+        assertTrue(result[50*size+50]);assertFalse(result[0]);assertFalse(result[35*size+35])
+    }
+
     @Test fun photoPerspectiveKeepsGridLinesStraight() {
         val motion=SpatialMotion()
         repeat(200) { motion.step(1f,-.8f,.03f,.7f) }

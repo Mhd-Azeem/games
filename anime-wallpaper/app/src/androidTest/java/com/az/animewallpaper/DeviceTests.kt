@@ -24,6 +24,19 @@ class DeviceTests {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
+    fun bundledPortraitModelExecutesOffline() {
+        val store=ProjectStore(context);val project=store.starter(0)
+        val bitmap=store.decode(project.image,512)
+        try {
+            val mask=com.az.animewallpaper.spatial.SpatialAnalyzer(context).portrait(bitmap)
+            if(mask!=null) {
+                assertEquals(128*128,mask.size)
+                assertTrue(mask.all { it.isFinite() && it in 0f..1f })
+            }
+        } finally { bitmap.recycle();store.delete(project) }
+    }
+
+    @Test
     fun oneTapSpatialAnalyzesSavesAndToggles() {
         val store = ProjectStore(context)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

@@ -50,6 +50,7 @@ data class SpatialSettings(
     var smoothing: Float = 0.7f,
     var depth: FloatArray = FloatArray(MASK_SIZE * MASK_SIZE),
     var strong: Boolean = false,
+    var analysisVersion: Int = 2,
 ) {
     fun cycle() {
         when {

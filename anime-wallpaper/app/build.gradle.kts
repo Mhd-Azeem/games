@@ -14,8 +14,8 @@ android {
         applicationId = "com.az.animewallpaper"
         minSdk = 30
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.7.1-dev"
+        versionCode = 14
+        versionName = "0.8.0-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -92,3 +92,21 @@ val prepareSpatialModel by
     }
 
 tasks.named("preBuild") { dependsOn(prepareSpatialModel) }
+
+val portraitModel = layout.projectDirectory.file("src/main/assets/spatial_portrait.tflite").asFile
+val preparePortraitModel by tasks.registering {
+    outputs.file(portraitModel)
+    doLast {
+        if(!portraitModel.exists()) {
+            portraitModel.parentFile.mkdirs()
+            val temp=File(portraitModel.parentFile,"portrait.tmp")
+            try {
+                URI("https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite").toURL().openStream().use { input -> temp.outputStream().use { input.copyTo(it) } }
+                check(temp.renameTo(portraitModel))
+            } finally { temp.delete() }
+        }
+        val hash=MessageDigest.getInstance("SHA-256").digest(portraitModel.readBytes()).joinToString("") { "%02x".format(it) }
+        check(hash=="c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0") { "Portrait model checksum mismatch" }
+    }
+}
+tasks.named("preBuild") { dependsOn(preparePortraitModel) }

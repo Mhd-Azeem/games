@@ -55,6 +55,7 @@ class SpatialAnalyzer(private val context: Context) {
             val chosen = if (counts[15] > pixels.size * .025f) 15 else (1..20).maxBy { counts[it] }
             val fraction = counts[chosen].toFloat() / pixels.size
             if (fraction in 0.025f..0.88f) {
+                if(chosen == 15) portrait(source)?.let { return SpatialSettings(true,"subject",depth=it) }
                 val mask =
                     FloatArray(MASK_SIZE * MASK_SIZE) { i ->
                         val x = i % MASK_SIZE * 257 / MASK_SIZE
@@ -77,4 +78,31 @@ class SpatialAnalyzer(private val context: Context) {
             source.recycle()
         }
     }
+    fun portrait(source: Bitmap): FloatArray? {
+        val image=Bitmap.createScaledBitmap(source,256,256,true)
+        val pixels=IntArray(256*256);image.getPixels(pixels,0,256,0,0,256,256)
+        if(image !== source)image.recycle()
+        val input=ByteBuffer.allocateDirect(pixels.size*12).order(ByteOrder.nativeOrder())
+        pixels.forEach { c -> for(shift in intArrayOf(16,8,0)) input.putFloat((c shr shift and 255)/255f) }
+        input.rewind()
+        val output=ByteBuffer.allocateDirect(pixels.size*6*4).order(ByteOrder.nativeOrder())
+        val bytes=context.assets.open("spatial_portrait.tflite").use { it.readBytes() }
+        val model=ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder()).apply { put(bytes);rewind() }
+        Interpreter(model,Interpreter.Options().setNumThreads(2)).use { it.run(input,output) }
+        output.rewind();val scores=output.asFloatBuffer()
+        val mask=BooleanArray(pixels.size) { i ->
+            var best=0;var value=-Float.MAX_VALUE
+            for(c in 0..5) {val score=scores[i*6+c];if(score>value) {best=c;value=score}}
+            // Hair, body, face, clothing AND accessories belong to the same foreground.
+            best!=0
+        }
+        val area=mask.count { it }.toFloat()/mask.size
+        if(area !in 0.02f..0.9f)return null
+        val clean=MaskCleanup.fillSmallHoles(mask,256)
+        return FloatArray(MASK_SIZE*MASK_SIZE) { i ->
+            val x=i%MASK_SIZE*256/MASK_SIZE;val y=i/MASK_SIZE*256/MASK_SIZE
+            if(clean[y*256+x])1f else 0f
+        }
+    }
+
 }

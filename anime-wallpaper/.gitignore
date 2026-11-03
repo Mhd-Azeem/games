@@ -7,3 +7,6 @@ local.properties
 
 app/src/main/assets/spatial_subject.tflite
 app/src/main/assets/spatial.tmp
+
+app/src/main/assets/spatial_portrait.tflite
+app/src/main/assets/portrait.tmp

@@ -109,6 +109,7 @@ object Codec {
                     .put("enabled", p.spatial.enabled)
                     .put("kind", p.spatial.kind)
                     .put("strong", p.spatial.strong)
+                    .put("analysisVersion", p.spatial.analysisVersion)
                     .put("strength", p.spatial.strength)
                     .put("smoothing", p.spatial.smoothing)
                     .put(
@@ -161,6 +162,7 @@ object Codec {
                     smoothing.coerceIn(0f, 1f),
                     FloatArray(bytes.size) { (bytes[it].toInt() and 255) / 255f },
                     a.optBoolean("strong"),
+                    a.optInt("analysisVersion",1),
                 )
         }
         val points = o.getJSONArray("points")
